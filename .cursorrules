@@ -1,0 +1,241 @@
+# CampBand - Cursor Rules
+
+## Project Overview
+CampBand is a modern Bandcamp alternative client built as a Firefox extension. It provides a Spotify/Apple Music-like experience for browsing and playing music from Bandcamp.
+
+## Tech Stack
+- **Framework:** WXT (Web Extension Framework for Firefox)
+- **UI:** React 18 + TypeScript
+- **Styling:** Tailwind CSS with Rose Pine theme
+- **State:** Zustand
+- **Storage:** IndexedDB via Dexie.js
+- **Icons:** Lucide React
+
+## Code Style & Conventions
+
+### General
+- Use TypeScript strict mode
+- Prefer functional components with hooks
+- Use named exports (not default exports)
+- Keep files small and focused (<300 lines)
+- Use descriptive variable names
+
+### File Naming
+- Components: `PascalCase.tsx` (e.g., `PlayerBar.tsx`)
+- Hooks: `useCamelCase.ts` (e.g., `usePlayer.ts`)
+- Utilities: `camelCase.ts` (e.g., `formatTime.ts`)
+- Types: `camelCase.types.ts` or in component file
+- Stores: `camelCaseStore.ts` (e.g., `playerStore.ts`)
+
+### Folder Structure
+```
+/
+├── .github/workflows/ # CI/CD (release.yml for signed builds)
+├── docs/              # Documentation
+│   ├── TODO.md
+│   ├── TECHNICAL.md
+│   ├── DESIGN_SYSTEM.md
+│   └── ROADMAP.md
+├── extension/         # Extension source code (srcDir)
+│   ├── entrypoints/   # WXT entry points (background, newtab)
+│   ├── components/    # React components
+│   │   ├── ui/        # Base/reusable components
+│   │   ├── layout/    # Layout components
+│   │   ├── player/    # Player-related
+│   │   ├── search/    # Search-related
+│   │   ├── artist/    # Artist page
+│   │   └── library/   # Library/playlists
+│   ├── lib/           # Core logic
+│   │   ├── api/       # Bandcamp scraping
+│   │   ├── audio/     # Audio engine
+│   │   ├── store/     # Zustand stores
+│   │   ├── db/        # IndexedDB
+│   │   └── utils/     # Helpers
+│   ├── hooks/         # Custom hooks
+│   ├── types/         # TypeScript types
+│   └── styles/        # Global CSS
+├── package.json
+├── wxt.config.ts
+└── README.md
+```
+
+### React Components
+```tsx
+// Good component structure
+import { useState } from 'react';
+import { cn } from '@/lib/utils';
+
+interface MyComponentProps {
+  title: string;
+  onAction?: () => void;
+}
+
+export function MyComponent({ title, onAction }: MyComponentProps) {
+  const [state, setState] = useState(false);
+
+  return (
+    <div className={cn('base-class', state && 'conditional-class')}>
+      {title}
+    </div>
+  );
+}
+```
+
+### Zustand Stores
+```typescript
+// Use slices pattern for complex stores
+import { create } from 'zustand';
+
+interface PlayerState {
+  isPlaying: boolean;
+  play: () => void;
+  pause: () => void;
+}
+
+export const usePlayerStore = create<PlayerState>((set) => ({
+  isPlaying: false,
+  play: () => set({ isPlaying: true }),
+  pause: () => set({ isPlaying: false }),
+}));
+```
+
+### Styling
+- Use Tailwind CSS classes
+- Use CSS variables for theme colors (Rose Pine)
+- Use `cn()` utility for conditional classes
+- Prefer `gap` over margins for spacing
+- Use glassmorphism utilities: `.glass`, `.glass-subtle`
+
+### API/Scraping
+- Always handle errors gracefully
+- Show loading states
+- Add delays between requests (rate limiting)
+- Cache responses in IndexedDB
+- Log errors for debugging
+
+### Accessibility
+- Use semantic HTML
+- Include aria-labels on icon buttons
+- Ensure keyboard navigation works
+- Maintain focus states
+
+## Rose Pine Theme Colors
+```
+Base:     #191724
+Surface:  #1f1d2e
+Overlay:  #26233a
+Muted:    #6e6a86
+Text:     #e0def4
+Love:     #eb6f92  (errors, accents)
+Gold:     #f6c177  (warnings)
+Rose:     #ebbcba  (primary accent)
+Pine:     #31748f  (links)
+Foam:     #9ccfd8  (info)
+Iris:     #c4a7e7  (highlights)
+```
+
+## Common Patterns
+
+### Loading States
+Always show loading feedback:
+```tsx
+if (isLoading) return <Skeleton />;
+if (error) return <ErrorState message={error} />;
+return <Content data={data} />;
+```
+
+### Error Handling
+```typescript
+try {
+  const data = await fetchSomething();
+  return data;
+} catch (error) {
+  console.error('[CampBand] Failed to fetch:', error);
+  throw new Error('Failed to load data. Please try again.');
+}
+```
+
+### Debouncing
+```typescript
+import { useDebouncedCallback } from 'use-debounce';
+
+const debouncedSearch = useDebouncedCallback((query: string) => {
+  search(query);
+}, 300);
+```
+
+## Don'ts
+- Don't use `any` type - use `unknown` and narrow
+- Don't use inline styles - use Tailwind
+- Don't fetch without error handling
+- Don't block UI during fetches
+- Don't store sensitive data in local storage
+- Don't make requests without rate limiting
+
+## Testing
+- Write tests for utilities and stores
+- Use React Testing Library for components
+- Mock browser APIs in tests
+
+## Browser Extension Notes
+- Background script runs persistently
+- Use message passing between contexts
+- Store large data in IndexedDB, not storage.local
+- Test in Firefox Developer Edition
+
+## Documentation
+- Docs are in `/docs` folder (TODO.md, TECHNICAL.md, DESIGN_SYSTEM.md, ROADMAP.md)
+- Update docs/TODO.md when completing tasks
+- Add JSDoc comments for complex functions
+- Keep docs/TECHNICAL.md updated with architecture changes
+
+## Task Management
+- Always check docs/TODO.md before starting new features
+- Update docs/TODO.md status as you complete tasks
+- Use the todo_write tool to track in-progress work
+
+## Animations & Transitions
+- All animations should be bidirectional (work on enter AND exit)
+- Use CSS transitions with appropriate durations (150-300ms for UI, longer for content)
+- Hover states should smoothly return to normal state
+- Use `transition-all` or specific properties, never leave transitions one-way
+- Example: `hover:scale-105 transition-transform duration-200` (scales up AND down)
+
+## Clickable Text (Navigation Links)
+For track titles, artist names, and album names that navigate to pages:
+
+### Styling Pattern
+```tsx
+<button
+  onClick={handleClick}
+  disabled={!url}
+  className={cn(
+    'text-left truncate',
+    'transition-colors duration-150',
+    // Primary text (titles): hover to rose with underline
+    url && 'hover:text-rose hover:underline underline-offset-2 cursor-pointer',
+    // Secondary text (artists): hover to text with underline
+    url && 'hover:text-text hover:underline underline-offset-2 cursor-pointer'
+  )}
+>
+  {text}
+</button>
+```
+
+### Guidelines
+- Use `<button>` element with `onClick`, not `<a>` tags (SPA navigation)
+- Add `disabled={!url}` when URL might be undefined
+- Always include `transition-colors duration-150` for smooth hover
+- Use `truncate` for text overflow
+- Stop propagation if inside clickable parent: `onClick={(e) => { e.stopPropagation(); ... }}`
+- Track titles → navigate to album page (use `albumUrl`)
+- Artist names → navigate to artist page (use `bandUrl`)
+- Album art → can be clickable to play or navigate
+
+### Where to Apply
+- PlayerBar: track title, artist name, album art
+- QueuePanel: track title, artist name (art = play)
+- LibraryPage: track/album titles, artist names
+- AlbumHeader: artist name
+- SearchResults: titles, artist names
+

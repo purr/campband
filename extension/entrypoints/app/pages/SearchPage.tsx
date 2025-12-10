@@ -1,0 +1,60 @@
+import { useEffect, useRef } from 'react';
+import { PageHeader } from '@/components/layout';
+import { SearchInput, SearchResults } from '@/components/search';
+import { useRouterStore, useSearchStore } from '@/lib/store';
+import type { SearchResult } from '@/types';
+
+interface SearchPageProps {
+  initialQuery?: string;
+}
+
+export function SearchPage({ initialQuery }: SearchPageProps) {
+  const { navigate } = useRouterStore();
+  const { search, setQuery } = useSearchStore();
+  const searchedRef = useRef(false);
+
+  // Search on mount if we have an initial query
+  useEffect(() => {
+    if (initialQuery && !searchedRef.current) {
+      searchedRef.current = true;
+      setQuery(initialQuery);
+      search(initialQuery);
+    }
+  }, [initialQuery, search, setQuery]);
+
+  // Reset ref when initialQuery changes
+  useEffect(() => {
+    searchedRef.current = false;
+  }, [initialQuery]);
+
+  const handleArtistClick = (result: SearchResult) => {
+    navigate({ name: 'artist', url: result.url });
+  };
+
+  const handleAlbumClick = (result: SearchResult) => {
+    navigate({ name: 'album', url: result.url });
+  };
+
+  const handleTrackClick = (result: SearchResult) => {
+    // Navigate to album/track page
+    navigate({ name: 'album', url: result.url });
+  };
+
+  return (
+    <div className="min-h-full">
+      {/* Header */}
+      <PageHeader>
+          <SearchInput className="flex-1 max-w-2xl" autoFocus />
+      </PageHeader>
+
+      {/* Results */}
+      <div className="px-6 py-6">
+        <SearchResults
+          onArtistClick={handleArtistClick}
+          onAlbumClick={handleAlbumClick}
+          onTrackClick={handleTrackClick}
+        />
+      </div>
+    </div>
+  );
+}

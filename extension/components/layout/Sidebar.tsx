@@ -1,0 +1,477 @@
+import { useState, useEffect, useRef } from 'react';
+import { Home, Search, Plus, Settings, ListMusic, Music, Disc3 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useUIStore, useRouterStore, useSearchStore, usePlaylistStore, useLibraryStore } from '@/lib/store';
+import { buildArtUrl, ImageSizes } from '@/types';
+import { LikedCover, FollowingCover, PlaylistCover } from '@/components/shared';
+import { LAYOUT_CLASSES } from '@/lib/constants/layout';
+
+interface NavItem {
+  icon: React.ReactNode;
+  label: string;
+  route: 'home' | 'search' | 'following' | 'liked' | 'settings';
+  count?: number;
+}
+
+export function Sidebar() {
+  const { sidebarCollapsed, toggleSidebar } = useUIStore();
+  const { currentRoute, navigate } = useRouterStore();
+  const { clearResults } = useSearchStore();
+  const { playlists, init: initPlaylists, getPlaylistArtIds } = usePlaylistStore();
+  const { favoriteArtists, favoriteAlbums, favoriteTracks, init: initLibrary } = useLibraryStore();
+
+  const [showTopShadow, setShowTopShadow] = useState(false);
+  const [showBottomShadow, setShowBottomShadow] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Initialize stores
+  useEffect(() => {
+    initPlaylists();
+    initLibrary();
+  }, [initPlaylists, initLibrary]);
+
+// Track if sidebar was auto-collapsed (vs manually collapsed)
+  const wasAutoCollapsed = useRef(false);
+  const collapsedRef = useRef(sidebarCollapsed);
+  const { setSidebarCollapsed } = useUIStore();
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    collapsedRef.current = sidebarCollapsed;
+  }, [sidebarCollapsed]);
+
+  // Handle responsive sidebar - auto-collapse/expand based on screen width
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 1400px)');
+
+    const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      if (e.matches) {
+        // Screen became narrow - only auto-collapse if not already collapsed
+        if (!collapsedRef.current) {
+          wasAutoCollapsed.current = true;
+          setSidebarCollapsed(true);
+        }
+        // If already collapsed (manually), don't mark as auto-collapsed
+      } else if (wasAutoCollapsed.current) {
+        // Screen became wide AND it was auto-collapsed - auto-expand
+        wasAutoCollapsed.current = false;
+        setSidebarCollapsed(false);
+      }
+      // If screen became wide but user manually collapsed, don't auto-expand
+    };
+
+    // Check initial state - only auto-collapse if not already collapsed
+    if (mediaQuery.matches && !collapsedRef.current) {
+      wasAutoCollapsed.current = true;
+      setSidebarCollapsed(true);
+    }
+
+    // Listen for changes
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [setSidebarCollapsed]);
+
+  // Handle scroll shadows
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const updateShadows = () => {
+      setShowTopShadow(el.scrollTop > 0);
+      setShowBottomShadow(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
+    };
+
+    updateShadows();
+    el.addEventListener('scroll', updateShadows);
+
+    const resizeObserver = new ResizeObserver(updateShadows);
+    resizeObserver.observe(el);
+
+    return () => {
+      el.removeEventListener('scroll', updateShadows);
+      resizeObserver.disconnect();
+    };
+  }, [playlists, favoriteAlbums]);
+
+  const mainNavItems: NavItem[] = [
+    { icon: <Home size={20} />, label: 'Home', route: 'home' },
+    { icon: <Search size={20} />, label: 'Search', route: 'search' },
+  ];
+
+  const handleNavigation = (route: NavItem['route']) => {
+    if (route !== 'search') {
+      clearResults();
+    }
+    navigate({ name: route });
+  };
+
+  const handlePlaylistClick = (playlistId: number) => {
+    clearResults();
+    navigate({ name: 'playlist', id: playlistId });
+  };
+
+  const handleAlbumClick = (albumUrl: string) => {
+    clearResults();
+    navigate({ name: 'album', url: albumUrl });
+  };
+
+  const handleCreatePlaylist = () => {
+    useUIStore.getState().openCreatePlaylistModal();
+  };
+
+  const isRouteActive = (route: NavItem['route']) => {
+    return currentRoute.name === route;
+  };
+
+  const isPlaylistActive = (playlistId: number) => {
+    return currentRoute.name === 'playlist' && 'id' in currentRoute && currentRoute.id === playlistId;
+  };
+
+  const isAlbumActive = (albumUrl: string) => {
+    return currentRoute.name === 'album' && 'url' in currentRoute && currentRoute.url === albumUrl;
+  };
+
+  const isCollapsed = sidebarCollapsed;
+
+  return (
+    <aside
+      className={cn(
+        'flex flex-col h-full overflow-hidden',
+        'liquid-glass-sidebar border-r border-white/5',
+        'transition-[width] duration-300 ease-out',
+        sidebarCollapsed ? LAYOUT_CLASSES.SIDEBAR_WIDTH_COLLAPSED : LAYOUT_CLASSES.SIDEBAR_WIDTH
+      )}
+    >
+      {/* Logo - Same height as header bar */}
+      <div className={cn(
+        'flex items-center gap-3 px-4 border-b border-white/5 flex-shrink-0',
+        LAYOUT_CLASSES.BAR_HEIGHT
+      )}>
+        <button
+          onClick={() => {
+            // User manually toggled - reset auto-collapse tracking
+            wasAutoCollapsed.current = false;
+            toggleSidebar();
+          }}
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="w-9 h-9 rounded-xl bg-rose flex items-center justify-center flex-shrink-0 hover:bg-rose/90 active:scale-95 transition-all"
+        >
+          <ListMusic size={18} className="text-base" />
+        </button>
+        <span
+          className={cn(
+            'font-bold text-lg text-text whitespace-nowrap',
+            'transition-opacity duration-200',
+            sidebarCollapsed ? 'opacity-0' : 'opacity-100'
+          )}
+        >
+          CampBand
+        </span>
+      </div>
+
+      {/* Main Navigation */}
+      <nav className="px-2 py-3 space-y-1 flex-shrink-0">
+        {mainNavItems.map((item) => (
+          <NavButton
+            key={item.route}
+            item={item}
+            isActive={isRouteActive(item.route)}
+            isCollapsed={sidebarCollapsed}
+            onClick={() => handleNavigation(item.route)}
+          />
+        ))}
+      </nav>
+
+      {/* Divider */}
+      <div className="mx-3 border-t border-white/5" />
+
+      {/* Collections Section - Following, Liked Songs, Playlists, and Liked Albums */}
+      <div className="relative flex-1 min-h-0">
+        {/* Top Shadow */}
+        <div
+          className={cn(
+            'absolute top-0 left-0 right-0 h-6 z-10 pointer-events-none',
+            'bg-gradient-to-b from-surface/80 to-transparent',
+            'transition-opacity duration-200',
+            showTopShadow ? 'opacity-100' : 'opacity-0'
+          )}
+        />
+
+        {/* Scrollable List */}
+        <div
+          ref={scrollRef}
+          className="h-full overflow-y-auto px-2 py-1 scrollbar-thin"
+        >
+          {/* Following - Artists */}
+          <CollectionItem
+            name="Following"
+            type="following"
+            cover={<FollowingCover size="small" />}
+            trackCount={favoriteArtists.length}
+            isActive={isRouteActive('following')}
+            isCollapsed={sidebarCollapsed}
+            onClick={() => handleNavigation('following')}
+          />
+
+          {/* Liked Songs - Special item */}
+          <CollectionItem
+            name="Liked Songs"
+            type="liked"
+            cover={<LikedCover size="small" />}
+            trackCount={favoriteTracks.length}
+            isActive={isRouteActive('liked')}
+            isCollapsed={sidebarCollapsed}
+            onClick={() => handleNavigation('liked')}
+          />
+
+          {/* Divider */}
+          {!sidebarCollapsed && (
+            <div className="mx-2 my-2 border-t border-white/5" />
+          )}
+
+          {/* Create Playlist Button */}
+          <button
+            onClick={handleCreatePlaylist}
+            className={cn(
+              'w-full flex items-center gap-3 px-2 py-1.5 rounded-lg',
+              'text-text/70 hover:text-text hover:bg-white/5',
+              'transition-all duration-200',
+              'focus-ring'
+            )}
+          >
+            <div className={cn(
+              'flex-shrink-0 rounded-md overflow-hidden flex items-center justify-center bg-muted/20',
+              'transition-all duration-300',
+              sidebarCollapsed ? 'w-8 h-8' : 'w-10 h-10'
+            )}>
+              <Plus size={sidebarCollapsed ? 16 : 20} className="text-text/60" />
+            </div>
+            {!sidebarCollapsed && (
+              <span className="font-medium text-sm whitespace-nowrap">Create Playlist</span>
+            )}
+          </button>
+
+          {/* User Playlists */}
+          {playlists.map((playlist) => (
+            <CollectionItem
+              key={`playlist-${playlist.id}`}
+              name={playlist.name}
+              type="playlist"
+              coverArtIds={getPlaylistArtIds(playlist.trackIds || [])}
+              coverImage={playlist.coverImage}
+              isActive={isPlaylistActive(playlist.id!)}
+              isCollapsed={sidebarCollapsed}
+              onClick={() => handlePlaylistClick(playlist.id!)}
+            />
+          ))}
+
+          {/* Divider between playlists and liked albums */}
+          {playlists.length > 0 && favoriteAlbums.length > 0 && !sidebarCollapsed && (
+            <div className="mx-2 my-2 border-t border-white/5" />
+          )}
+
+          {/* Liked Albums */}
+          {favoriteAlbums.map((album) => (
+            <CollectionItem
+              key={`album-${album.id}`}
+              name={album.title}
+              type="album"
+              artist={album.artist}
+              artId={album.artId}
+              isActive={isAlbumActive(album.url)}
+              isCollapsed={sidebarCollapsed}
+              onClick={() => handleAlbumClick(album.url)}
+            />
+          ))}
+        </div>
+
+        {/* Bottom Shadow */}
+        <div
+          className={cn(
+            'absolute bottom-0 left-0 right-0 h-6 z-10 pointer-events-none',
+            'bg-gradient-to-t from-surface/80 to-transparent',
+            'transition-opacity duration-200',
+            showBottomShadow ? 'opacity-100' : 'opacity-0'
+          )}
+        />
+      </div>
+
+      {/* Settings - Same height as header/player bar */}
+      <div className={cn(
+        'px-3 flex items-center border-t border-white/5 flex-shrink-0',
+        LAYOUT_CLASSES.BAR_HEIGHT
+      )}>
+        <NavButton
+          item={{ icon: <Settings size={20} />, label: 'Settings', route: 'settings' }}
+          isActive={currentRoute.name === 'settings'}
+          isCollapsed={sidebarCollapsed}
+          onClick={() => handleNavigation('settings')}
+        />
+      </div>
+    </aside>
+  );
+}
+
+// ============================================
+// Sub-components
+// ============================================
+
+interface NavButtonProps {
+  item: NavItem;
+  isActive: boolean;
+  isCollapsed: boolean;
+  onClick: () => void;
+}
+
+function NavButton({ item, isActive, isCollapsed, onClick }: NavButtonProps) {
+          return (
+            <button
+      onClick={onClick}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 h-10 rounded-xl',
+                'text-text/70 hover:text-text hover:bg-white/5',
+                'transition-all duration-200',
+                'focus-ring',
+                isActive && 'text-text bg-white/8'
+              )}
+            >
+              <span className="flex-shrink-0">{item.icon}</span>
+              <span
+                className={cn(
+          'font-medium whitespace-nowrap flex-1 text-left',
+                  'transition-opacity duration-200',
+          isCollapsed ? 'opacity-0' : 'opacity-100'
+                )}
+              >
+                {item.label}
+              </span>
+      {item.count !== undefined && !isCollapsed && (
+        <span className="text-xs text-text/60 tabular-nums">{item.count}</span>
+      )}
+            </button>
+          );
+}
+
+interface CollectionItemProps {
+  name: string;
+  type: 'following' | 'liked' | 'playlist' | 'album';
+  cover?: React.ReactNode;
+  coverImage?: string;
+  coverArtIds?: number[];
+  artId?: number;
+  artist?: string;
+  trackCount?: number;
+  isActive: boolean;
+  isCollapsed: boolean;
+  onClick: () => void;
+}
+
+function CollectionItem({
+  name,
+  type,
+  cover,
+  coverImage,
+  coverArtIds = [],
+  artId,
+  artist,
+  trackCount,
+  isActive,
+  isCollapsed,
+  onClick,
+}: CollectionItemProps) {
+  const renderCover = () => {
+    // Custom cover (like Liked Songs)
+    if (cover) {
+      return cover;
+    }
+
+    // Album art (single artId)
+    if (artId) {
+      return (
+        <img
+          src={buildArtUrl(artId, ImageSizes.THUMB_100)}
+          alt={name}
+          className="w-full h-full object-cover"
+        />
+      );
+    }
+
+    // Playlist cover (user image or auto-collage)
+    return (
+      <PlaylistCover
+        coverImage={coverImage}
+        artIds={coverArtIds}
+        size="sm"
+        alt={name}
+      />
+    );
+  };
+
+  // Get the type badge icon
+  const TypeBadge = () => {
+    // Following and Liked have their own special covers - no badge needed
+    if (type === 'liked' || type === 'following') return null;
+
+    const Icon = type === 'album' ? Disc3 : Music;
+
+    return (
+      <div className={cn(
+        'absolute -bottom-0.5 -right-0.5',
+        'flex items-center justify-center',
+        'rounded-full',
+        'bg-base/70 backdrop-blur-md',
+        'ring-1 ring-white/10',
+        'shadow-sm shadow-base/50',
+        isCollapsed ? 'w-3.5 h-3.5' : 'w-4 h-4'
+      )}>
+        <Icon size={isCollapsed ? 7 : 9} className="text-text/70" />
+      </div>
+    );
+  };
+
+  return (
+        <button
+      onClick={onClick}
+          className={cn(
+        'w-full flex items-center gap-3 px-2 py-1.5 rounded-lg',
+            'text-text/70 hover:text-text hover:bg-white/5',
+            'transition-all duration-200',
+            'focus-ring',
+        isActive && 'text-text bg-white/8'
+          )}
+        >
+      {/* Cover Art with Type Badge */}
+      <div className="relative flex-shrink-0">
+        <div className={cn(
+          'rounded-md overflow-hidden transition-all duration-300',
+          isCollapsed ? 'w-8 h-8' : 'w-10 h-10',
+          // Rounded for playlists/liked, square for albums
+          type === 'album' ? 'rounded' : 'rounded-md'
+        )}>
+          {renderCover()}
+        </div>
+        <TypeBadge />
+      </div>
+
+      {/* Name and metadata */}
+      {!isCollapsed && (
+        <div className="flex-1 min-w-0 text-left">
+          <span className="font-medium text-sm truncate block">{name}</span>
+          {/* Subtitle */}
+          {type === 'following' && trackCount !== undefined && (
+            <p className="text-xs text-text/60">{trackCount} artists</p>
+          )}
+          {type === 'liked' && trackCount !== undefined && (
+            <p className="text-xs text-text/60">{trackCount} songs</p>
+          )}
+          {type === 'album' && artist && (
+            <p className="text-xs text-text/60 truncate">{artist}</p>
+          )}
+          {type === 'playlist' && (
+            <p className="text-xs text-text/60">Playlist</p>
+          )}
+        </div>
+      )}
+    </button>
+  );
+}

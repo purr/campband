@@ -1,0 +1,98 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import type { Track, RepeatMode } from '@/types';
+
+interface PlayerState {
+  // Current track
+  currentTrack: Track | null;
+
+  // Playback state
+  isPlaying: boolean;
+  isBuffering: boolean;
+  currentTime: number;    // Current time in seconds
+  duration: number;       // Total duration in seconds
+  error: string | null;
+
+  // Volume
+  volume: number;      // 0-1
+  isMuted: boolean;
+
+  // Modes
+  shuffle: boolean;
+  repeat: RepeatMode;
+
+  // Actions
+  setCurrentTrack: (track: Track | null) => void;
+  setIsPlaying: (playing: boolean) => void;
+  setIsBuffering: (buffering: boolean) => void;
+  setCurrentTime: (time: number) => void;
+  setDuration: (duration: number) => void;
+  setVolume: (volume: number) => void;
+  setMuted: (muted: boolean) => void;
+  toggleMute: () => void;
+  toggleShuffle: () => void;
+  toggleRepeat: () => void;
+  setError: (error: string | null) => void;
+  clearError: () => void;
+
+  // Playback control
+  play: () => void;
+  pause: () => void;
+  toggle: () => void;
+}
+
+export const usePlayerStore = create<PlayerState>()(
+  persist(
+    (set, get) => ({
+      // Initial state
+      currentTrack: null,
+      isPlaying: false,
+      isBuffering: false,
+      currentTime: 0,
+      duration: 0,
+      error: null,
+      volume: 0.8,
+      isMuted: false,
+      shuffle: false,
+      repeat: 'off',
+
+      // Setters
+      setCurrentTrack: (track) => set({ currentTrack: track, currentTime: 0, duration: track?.duration || 0 }),
+      setIsPlaying: (isPlaying) => set({ isPlaying }),
+      setIsBuffering: (isBuffering) => set({ isBuffering }),
+      setCurrentTime: (currentTime) => set({ currentTime }),
+      setDuration: (duration) => set({ duration }),
+      setVolume: (volume) => set({ volume: Math.max(0, Math.min(1, volume)) }),
+      setMuted: (muted) => set({ isMuted: muted }),
+      setError: (error) => set({ error }),
+      clearError: () => set({ error: null }),
+
+      // Toggles
+      toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
+      toggleShuffle: () => set((state) => ({ shuffle: !state.shuffle })),
+      toggleRepeat: () => set((state) => {
+        const modes: RepeatMode[] = ['off', 'all', 'track'];
+        const currentIndex = modes.indexOf(state.repeat);
+        const nextIndex = (currentIndex + 1) % modes.length;
+        return { repeat: modes[nextIndex] };
+      }),
+
+      // Playback
+      play: () => set({ isPlaying: true }),
+      pause: () => set({ isPlaying: false }),
+      toggle: () => set((state) => ({ isPlaying: !state.isPlaying })),
+    }),
+    {
+      name: 'campband-player',
+      partialize: (state) => ({
+        // Persist track info and settings, but NOT playback state
+        currentTrack: state.currentTrack,
+        volume: state.volume,
+        isMuted: state.isMuted,
+        shuffle: state.shuffle,
+        repeat: state.repeat,
+        // Don't persist: isPlaying, isBuffering, currentTime, duration, error
+      }),
+    }
+  )
+);

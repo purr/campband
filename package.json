@@ -1,0 +1,42 @@
+{
+  "name": "campband",
+  "description": "Modern Bandcamp client - A sleek alternative frontend for Bandcamp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt -b firefox",
+    "dev:chrome": "wxt",
+    "build": "wxt build -b firefox",
+    "build:chrome": "wxt build",
+    "zip": "wxt zip -b firefox",
+    "zip:chrome": "wxt zip",
+    "compile": "tsc --noEmit",
+    "postinstall": "wxt prepare",
+    "icons": "node --input-type=commonjs -e \"const sharp=require('sharp'),fs=require('fs'),svg=fs.readFileSync('extension/public/icon/icon.svg');[16,32,48,96,128].forEach(s=>sharp(svg).resize(s,s).png().toFile('extension/public/icon/'+s+'.png').then(()=>console.log(s+'.png')))\""
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.17",
+    "clsx": "^2.1.1",
+    "dexie": "^4.2.1",
+    "lucide-react": "^0.556.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.17",
+    "use-debounce": "^10.0.6",
+    "zustand": "^5.0.9"
+  },
+  "browserslist": [
+    "Firefox >= 109",
+    "last 2 Firefox versions"
+  ],
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@wxt-dev/module-react": "^1.1.3",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.2",
+    "wxt": "^0.20.6"
+  }
+}

@@ -1,0 +1,142 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'extension/**'
+      - 'package.json'
+      - 'wxt.config.ts'
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if secrets are configured
+        id: secrets
+        run: |
+          if [ -z "${{ secrets.AMO_JWT_ISSUER }}" ] || [ -z "${{ secrets.AMO_JWT_SECRET }}" ]; then
+            echo "❌ Mozilla AMO secrets not configured!"
+            echo "Please add AMO_JWT_ISSUER and AMO_JWT_SECRET to repository secrets."
+            echo "Get them from: https://addons.mozilla.org/developers/addon/api/key/"
+            exit 1
+          fi
+          echo "✅ Secrets configured"
+
+      - name: Get current version
+        id: check
+        run: |
+          # Get version from package.json
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
+
+          # Get the latest release tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          LATEST_VERSION=${LATEST_TAG#v}
+          echo "Latest release: $LATEST_VERSION"
+
+          # Compare versions
+          if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+            echo "✅ Version bumped: $LATEST_VERSION → $CURRENT_VERSION"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "ℹ️ Version unchanged ($CURRENT_VERSION), skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+  build-and-release:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build extension
+        run: pnpm build
+
+      - name: Sign extension with Mozilla
+        id: sign
+        run: |
+          echo "Signing extension with Mozilla Add-ons..."
+          npx web-ext sign \
+            --source-dir .output/firefox-mv2 \
+            --artifacts-dir ./artifacts \
+            --api-key ${{ secrets.AMO_JWT_ISSUER }} \
+            --api-secret ${{ secrets.AMO_JWT_SECRET }} \
+            --channel unlisted
+
+      - name: Find signed XPI
+        id: find_xpi
+        run: |
+          SIGNED_XPI=$(find ./artifacts -name "*.xpi" -type f | head -1)
+          if [ -z "$SIGNED_XPI" ]; then
+            echo "❌ No signed XPI found!"
+            exit 1
+          fi
+          echo "✅ Found signed XPI: $SIGNED_XPI"
+
+          # Rename to standard format
+          VERSION="${{ needs.check-version.outputs.version }}"
+          cp "$SIGNED_XPI" "./campband-${VERSION}.xpi"
+          echo "xpi_path=./campband-${VERSION}.xpi" >> $GITHUB_OUTPUT
+
+      - name: Create Git Tag
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: CampBand v${{ needs.check-version.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            ${{ steps.find_xpi.outputs.xpi_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release Summary
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          echo "## 🎉 Release v${VERSION} Created!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Extension signed with Mozilla" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Git tag v${VERSION} created" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ GitHub release published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Install: Download \`campband-${VERSION}.xpi\` from the release page" >> $GITHUB_STEP_SUMMARY
