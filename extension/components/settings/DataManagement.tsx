@@ -83,25 +83,25 @@ function Checkbox({ id, label, description, icon, checked, onChange, disabled }:
 
 export function DataManagement() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // Export options
   const [exportLikes, setExportLikes] = useState(true);
   const [exportPlaylists, setExportPlaylists] = useState(true);
   const [exportFollowing, setExportFollowing] = useState(true);
   const [exportSettings, setExportSettings] = useState(true);
-  
+
   // Status
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState('');
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  
+
   // Get store data
   const { favoriteTracks, favoriteAlbums, favoriteArtists, init: initLibrary } = useLibraryStore();
   const { playlists, init: initPlaylists } = usePlaylistStore();
   const { audio, app } = useSettingsStore();
-  
+
   // Counts for display
   const likeCount = favoriteTracks.length + favoriteAlbums.length;
   const playlistCount = playlists.length;
@@ -242,7 +242,7 @@ export function DataManagement() {
             onChange={setExportLikes}
             disabled={isExporting || isImporting}
           />
-          
+
           <Checkbox
             id="export-playlists"
             label="Playlists"
@@ -252,7 +252,7 @@ export function DataManagement() {
             onChange={setExportPlaylists}
             disabled={isExporting || isImporting}
           />
-          
+
           <Checkbox
             id="export-following"
             label="Following"
@@ -262,7 +262,7 @@ export function DataManagement() {
             onChange={setExportFollowing}
             disabled={isExporting || isImporting}
           />
-          
+
           <Checkbox
             id="export-settings"
             label="Settings"
@@ -366,7 +366,7 @@ export function DataManagement() {
           {progress && !importResult && (
             <p className="text-sm text-text/80">{progress}</p>
           )}
-          
+
           {importResult && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -382,7 +382,7 @@ export function DataManagement() {
                   </>
                 )}
               </div>
-              
+
               {importResult.success && (
                 <ul className="text-xs text-text/60 space-y-1 pl-6">
                   {importResult.imported.tracks > 0 && (
@@ -405,15 +405,15 @@ export function DataManagement() {
                       <ListMusic size={12} /> {importResult.imported.playlists} playlists added
                     </li>
                   )}
-                  {importResult.imported.tracks === 0 && 
-                   importResult.imported.albums === 0 && 
-                   importResult.imported.artists === 0 && 
+                  {importResult.imported.tracks === 0 &&
+                   importResult.imported.albums === 0 &&
+                   importResult.imported.artists === 0 &&
                    importResult.imported.playlists === 0 && (
                     <li className="text-text/40">No new items to import (all already exist)</li>
                   )}
                 </ul>
               )}
-              
+
               {importResult.errors.length > 0 && (
                 <ul className="text-xs text-love/80 space-y-1 pl-6">
                   {importResult.errors.map((error, i) => (

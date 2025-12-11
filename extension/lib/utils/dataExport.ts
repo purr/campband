@@ -244,7 +244,7 @@ export async function importData(
     // Custom playlist covers (coverImage) are preserved as base64
     if (data.playlists && data.playlists.length > 0) {
       onProgress?.(`Importing ${data.playlists.length} playlists...`);
-      
+
       for (const playlist of data.playlists) {
         try {
           // First, ensure all tracks exist in favoriteTracks
@@ -254,21 +254,21 @@ export async function importData(
               await db.favoriteTracks.add(track);
             }
           }
-          
+
           // Check if playlist with same name exists
           const existingWithName = await db.playlists.where('name').equals(playlist.name).first();
-          
+
           if (existingWithName) {
             // Check if it's the same content (same tracks in same order)
-            const isSameContent = 
+            const isSameContent =
               existingWithName.trackIds.length === playlist.trackIds.length &&
               existingWithName.trackIds.every((id, idx) => id === playlist.trackIds[idx]);
-            
+
             if (isSameContent) {
               // Skip - identical playlist already exists
               continue;
             }
-            
+
             // Different content - find unique name
             let finalName = playlist.name;
             let counter = 1;
@@ -278,7 +278,7 @@ export async function importData(
               counter++;
               finalName = `${playlist.name} (${counter})`;
             }
-            
+
             // Create playlist with new name
             const playlistId = await db.playlists.add({
               name: finalName,
@@ -288,7 +288,7 @@ export async function importData(
               createdAt: new Date(playlist.createdAt),
               updatedAt: new Date(playlist.updatedAt),
             });
-            
+
             // Add to playlistTracks
             for (let i = 0; i < playlist.trackIds.length; i++) {
               await db.playlistTracks.add({
@@ -298,7 +298,7 @@ export async function importData(
                 addedAt: new Date(),
               });
             }
-            
+
             result.imported.playlists++;
           } else {
             // No existing playlist with this name - create it
@@ -310,7 +310,7 @@ export async function importData(
               createdAt: new Date(playlist.createdAt),
               updatedAt: new Date(playlist.updatedAt),
             });
-            
+
             // Add to playlistTracks
             for (let i = 0; i < playlist.trackIds.length; i++) {
               await db.playlistTracks.add({
@@ -320,7 +320,7 @@ export async function importData(
                 addedAt: new Date(),
               });
             }
-            
+
             result.imported.playlists++;
           }
         } catch (e) {
