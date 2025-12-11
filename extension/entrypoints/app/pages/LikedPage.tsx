@@ -2,8 +2,9 @@ import { useEffect } from 'react';
 import { Music } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 import { CollectionHeader, PlaylistTrackList, LikedCover, type PlaylistTrackItem } from '@/components/shared';
+import { EmptyState } from '@/components/ui';
 import { useLibraryStore, useQueueStore, usePlayerStore } from '@/lib/store';
-import type { FavoriteTrack } from '@/lib/db';
+import { toPlayableTrack, toPlayableTracks, shuffleTracks } from '@/lib/utils';
 
 export function LikedPage() {
   const {
@@ -18,55 +19,32 @@ export function LikedPage() {
     init();
   }, [init]);
 
-  // Convert FavoriteTrack to playable Track format
-  const toPlayableTrack = (track: FavoriteTrack) => ({
-    id: track.id,
-    trackId: track.id,
-    title: track.title,
-    artist: track.artist,
-    albumTitle: track.albumTitle,
-    albumId: track.albumId,
-    albumUrl: track.albumUrl,
-    artId: track.artId,
-    bandId: track.bandId,
-    bandName: track.bandName,
-    bandUrl: track.bandUrl,
-    duration: track.duration,
-    streamUrl: track.streamUrl,
-    trackNum: 1,
-    hasLyrics: false,
-    streaming: true,
-    isDownloadable: false,
-  });
-
   const handleTrackPlay = (track: PlaylistTrackItem, index: number) => {
     if (!track.streamUrl) return;
-    const playableTracks = favoriteTracks.filter(t => t.streamUrl).map(toPlayableTrack);
-    const trackIndex = playableTracks.findIndex(t => t.id === track.id);
-    setQueue(playableTracks, trackIndex >= 0 ? trackIndex : 0);
+    const playable = toPlayableTracks(favoriteTracks);
+    const trackIndex = playable.findIndex(t => t.id === track.id);
+    setQueue(playable, trackIndex >= 0 ? trackIndex : 0);
     play();
   };
 
   const handlePlayAll = () => {
-    const playableTracks = favoriteTracks.filter(t => t.streamUrl).map(toPlayableTrack);
-    if (playableTracks.length > 0) {
-      setQueue(playableTracks);
+    const playable = toPlayableTracks(favoriteTracks);
+    if (playable.length > 0) {
+      setQueue(playable);
       play();
     }
   };
 
   const handleShuffleAll = () => {
-    const playableTracks = favoriteTracks.filter(t => t.streamUrl).map(toPlayableTrack);
-    if (playableTracks.length > 0) {
-      const shuffled = [...playableTracks].sort(() => Math.random() - 0.5);
-      setQueue(shuffled);
+    const playable = toPlayableTracks(favoriteTracks);
+    if (playable.length > 0) {
+      setQueue(shuffleTracks(playable));
       play();
     }
   };
 
   const handleAddAllToQueue = () => {
-    const playableTracks = favoriteTracks.filter(t => t.streamUrl).map(toPlayableTrack);
-    playableTracks.forEach(track => addToQueue(track));
+    toPlayableTracks(favoriteTracks).forEach(track => addToQueue(track));
   };
 
   const totalDuration = favoriteTracks.reduce((sum, track) => sum + (track.duration || 0), 0);
@@ -108,7 +86,11 @@ export function LikedPage() {
       />
 
       {favoriteTracks.length === 0 ? (
-        <EmptyState />
+        <EmptyState
+          icon={<Music size={48} />}
+          title="No liked songs yet"
+          description="Songs you like will appear here. Start exploring and heart the songs you love!"
+        />
       ) : (
         <PlaylistTrackList
           tracks={playlistTracks}
@@ -117,20 +99,6 @@ export function LikedPage() {
           isPlaying={isPlaying}
         />
       )}
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 px-8 text-muted">
-      <div className="w-24 h-24 rounded-2xl bg-surface flex items-center justify-center mb-6">
-        <Music size={48} className="opacity-50" />
-      </div>
-      <h2 className="text-lg font-medium text-text mb-2">No liked songs yet</h2>
-      <p className="text-center max-w-md">
-        Songs you like will appear here. Start exploring and heart the songs you love!
-      </p>
     </div>
   );
 }

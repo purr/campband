@@ -1,15 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ListPlus, ListEnd, Plus, ChevronRight, Heart, Link, Check, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { usePlaylistStore, useQueueStore, useUIStore, useLibraryStore } from '@/lib/store';
+import { cn, toPlayableTrack, registerContextMenu, unregisterContextMenu, notifyMenuClosed, notifyMenuOpening, scheduleCloseFromMousedown } from '@/lib/utils';
+import { usePlaylistStore, useQueueStore, useUIStore, useLibraryStore, useSettingsStore } from '@/lib/store';
 import { PlaylistCover } from '@/components/shared';
+import { useUnlikeConfirm } from './ConfirmProvider';
 import type { Playlist } from '@/lib/db';
 
 interface TrackContextMenuProps {
-  /** Position of the menu */
   position: { x: number; y: number };
-  /** Track data to act on */
   track: {
     id: number;
     title: string;
@@ -24,7 +23,6 @@ interface TrackContextMenuProps {
     bandName?: string;
     bandUrl?: string;
   };
-  /** Callback when menu should close */
   onClose: () => void;
 }
 
@@ -32,21 +30,19 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
   const { playlists, addTrackToPlaylist, removeTrackFromPlaylist, init: initPlaylists } = usePlaylistStore();
   const { addToQueue, insertNext } = useQueueStore();
   const { isFavoriteTrack, addFavoriteTrack, removeFavoriteTrack } = useLibraryStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnlikeTrack } = useUnlikeConfirm();
   const [isVisible, setIsVisible] = useState(false);
-  const [showPlaylistPicker, setShowPlaylistPicker] = useState(false);
   const [copied, setCopied] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const [adjustedPosition, setAdjustedPosition] = useState(position);
 
-  // Check if track is liked
   const isLiked = isFavoriteTrack(track.id);
 
-  // Initialize playlists
   useEffect(() => {
     initPlaylists();
   }, [initPlaylists]);
 
-  // Enter animation - small delay to trigger CSS transition
   useEffect(() => {
     const timer = requestAnimationFrame(() => {
       setIsVisible(true);
@@ -54,7 +50,7 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
     return () => cancelAnimationFrame(timer);
   }, []);
 
-  // Animated close
+  // Animated close - does NOT call notifyMenuClosed
   const handleClose = useCallback(() => {
     setIsVisible(false);
     setTimeout(() => {
@@ -62,19 +58,25 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
     }, 150);
   }, [onClose]);
 
-  // Close on click outside
+  // Register with coordinator and notify on unmount
+  useEffect(() => {
+    registerContextMenu('track', handleClose);
+    return () => {
+      unregisterContextMenu('track');
+      notifyMenuClosed('track');
+    };
+  }, [handleClose]);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      // Check if click is inside the menu
       if (menuRef.current && menuRef.current.contains(target)) {
         return;
       }
-      // Check if click is inside a playlist picker portal (has data-playlist-picker attribute)
       if (target.closest('[data-playlist-picker]')) {
         return;
       }
-      handleClose();
+      scheduleCloseFromMousedown('track');
     };
 
     const handleEscape = (e: KeyboardEvent) => {
@@ -83,22 +85,18 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
       }
     };
 
-    // Small delay to prevent immediate close
     const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('contextmenu', handleClickOutside);
     }, 10);
     document.addEventListener('keydown', handleEscape);
 
     return () => {
       clearTimeout(timer);
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('contextmenu', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [handleClose]);
 
-  // Adjust position to stay within viewport
   useEffect(() => {
     if (menuRef.current) {
       const rect = menuRef.current.getBoundingClientRect();
@@ -108,12 +106,10 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
       let x = position.x;
       let y = position.y;
 
-      // Adjust horizontal position
       if (x + rect.width > viewportWidth - 16) {
         x = viewportWidth - rect.width - 16;
       }
 
-      // Adjust vertical position
       if (y + rect.height > viewportHeight - 16) {
         y = viewportHeight - rect.height - 16;
       }
@@ -124,34 +120,31 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
 
   const handlePlayNext = () => {
     if (track.streamUrl) {
-      insertNext(track as any);
+      insertNext(toPlayableTrack(track));
     }
     handleClose();
   };
 
   const handleAddToQueue = () => {
     if (track.streamUrl) {
-      addToQueue(track as any);
+      addToQueue(toPlayableTrack(track));
     }
     handleClose();
   };
 
   const handleAddToPlaylist = async (playlist: Playlist) => {
     if (playlist.id) {
-      await addTrackToPlaylist(playlist.id, track as any);
+      await addTrackToPlaylist(playlist.id, toPlayableTrack(track));
     }
-    // Don't close - allow adding to multiple playlists
   };
 
   const handleRemoveFromPlaylist = async (playlist: Playlist) => {
     if (playlist.id) {
       await removeTrackFromPlaylist(playlist.id, track.id);
     }
-    // Don't close - allow managing multiple playlists
   };
 
   const handleCopyLink = async () => {
-    // Prefer album URL, fallback to band URL
     const url = track.albumUrl || track.bandUrl;
     if (url) {
       try {
@@ -167,11 +160,18 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
     }
   };
 
-  const handleToggleLike = () => {
+  const handleToggleLike = async () => {
     if (isLiked) {
-      removeFavoriteTrack(track.id);
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnlikeTrack(track.title);
+        if (confirmed) {
+          removeFavoriteTrack(track.id);
+        }
+      } else {
+        removeFavoriteTrack(track.id);
+      }
     } else {
-      addFavoriteTrack(track as any);
+      addFavoriteTrack(toPlayableTrack(track));
     }
     handleClose();
   };
@@ -179,7 +179,6 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
   const isStreamable = !!track.streamUrl;
   const hasUrl = !!(track.albumUrl || track.bandUrl);
 
-  // Render via portal to escape any parent overflow/z-index issues
   return createPortal(
     <div
       ref={menuRef}
@@ -188,7 +187,6 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
         'w-[260px]',
         'py-2 rounded-2xl',
         'liquid-glass-glow',
-        // Simple fade + scale transition
         'transition-[opacity,transform] duration-150 ease-out',
         isVisible
           ? 'opacity-100 scale-100'
@@ -200,7 +198,6 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
         transformOrigin: 'top left',
       }}
     >
-      {/* Track Info Header */}
       <div className="px-3 pb-2 mb-1 border-b border-white/5 max-w-full overflow-hidden">
         <p className="text-sm font-medium text-text truncate max-w-[236px]">{track.title}</p>
         {track.artist && (
@@ -208,9 +205,7 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
         )}
       </div>
 
-      {/* Menu Items */}
       <div className="px-1">
-        {/* Like / Unlike */}
         <button
           onClick={handleToggleLike}
           className={cn(
@@ -226,7 +221,6 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
           {isLiked ? 'Unlike' : 'Like'}
         </button>
 
-        {/* Play Next */}
         <button
           onClick={handlePlayNext}
           disabled={!isStreamable}
@@ -243,7 +237,6 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
           Play Next
         </button>
 
-        {/* Add to Queue */}
         <button
           onClick={handleAddToQueue}
           disabled={!isStreamable}
@@ -260,7 +253,6 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
           Add to Queue
         </button>
 
-        {/* Add to Playlist - with hover submenu */}
         <AddToPlaylistItem
           playlists={playlists}
           onSelect={handleAddToPlaylist}
@@ -269,10 +261,8 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
           onClose={handleClose}
         />
 
-        {/* Divider */}
         <div className="my-1 border-t border-white/5" />
 
-        {/* Copy Link */}
         <button
           onClick={handleCopyLink}
           disabled={!hasUrl}
@@ -298,14 +288,11 @@ export function TrackContextMenu({ position, track, onClose }: TrackContextMenuP
           )}
         </button>
       </div>
+
     </div>,
     document.body
   );
 }
-
-// ============================================
-// Add to Playlist Menu Item (with hover delay)
-// ============================================
 
 interface AddToPlaylistItemProps {
   playlists: Playlist[];
@@ -323,12 +310,10 @@ function AddToPlaylistItem({ playlists, onSelect, onRemove, track, onClose }: Ad
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleMouseEnter = () => {
-    // Clear any pending hide timeout
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
       hideTimeoutRef.current = null;
     }
-    // Get button position for portal
     if (buttonRef.current) {
       setButtonRect(buttonRef.current.getBoundingClientRect());
     }
@@ -336,15 +321,12 @@ function AddToPlaylistItem({ playlists, onSelect, onRemove, track, onClose }: Ad
   };
 
   const handleMouseLeave = () => {
-    // Delay hiding by 500ms to allow moving to submenu
     hideTimeoutRef.current = setTimeout(() => {
       setIsPickerVisible(false);
-      // Wait for exit animation before unmounting
       setTimeout(() => setShowPicker(false), 150);
     }, 500);
   };
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (hideTimeoutRef.current) {
@@ -377,7 +359,6 @@ function AddToPlaylistItem({ playlists, onSelect, onRemove, track, onClose }: Ad
         )} />
       </button>
 
-      {/* Playlist Submenu - shows on hover with animation */}
       {showPicker && buttonRect && (
         <PlaylistPicker
           playlists={playlists}
@@ -395,10 +376,6 @@ function AddToPlaylistItem({ playlists, onSelect, onRemove, track, onClose }: Ad
     </div>
   );
 }
-
-// ============================================
-// Playlist Picker Submenu
-// ============================================
 
 interface PlaylistPickerProps {
   playlists: Playlist[];
@@ -420,18 +397,15 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, onClose, isVisib
   const { openCreatePlaylistModal } = useUIStore();
   const { getPlaylistArtIds } = usePlaylistStore();
 
-  // Check if track is already in playlist
   const isTrackInPlaylist = (playlist: Playlist): boolean => {
     return playlist.trackIds.includes(track.id);
   };
 
-  // Calculate position on mount
   useEffect(() => {
     const pickerWidth = 220;
     let x = parentRect.right + 4;
     let side: 'right' | 'left' = 'right';
 
-    // Check if it would go off screen to the right
     if (x + pickerWidth > window.innerWidth - 16) {
       x = parentRect.left - pickerWidth - 4;
       side = 'left';
@@ -441,9 +415,7 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, onClose, isVisib
     setSubPosition(side);
   }, [parentRect]);
 
-  // Enter animation - trigger on mount with small delay for CSS transition
   useEffect(() => {
-    // Double RAF ensures browser has painted the initial state
     const timer = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         setIsVisible(true);
@@ -453,12 +425,10 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, onClose, isVisib
   }, [setIsVisible]);
 
   const handleCreatePlaylist = () => {
-    // Close context menu and open create playlist modal with the track
     onClose();
     openCreatePlaylistModal(track);
   };
 
-  // Render via portal to escape backdrop-filter nesting
   return createPortal(
     <div
       ref={pickerRef}
@@ -469,7 +439,6 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, onClose, isVisib
         'py-2 rounded-2xl',
         'liquid-glass-glow',
         'overflow-hidden flex flex-col',
-        // Smooth fade + scale transition for enter/exit
         'transition-[opacity,transform] duration-200 ease-out',
         isVisible
           ? 'opacity-100 scale-100'
@@ -483,7 +452,6 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, onClose, isVisib
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      {/* Create New Playlist - always at top */}
       <div className="px-1 pb-1 border-b border-white/5 flex-shrink-0">
         <button
           onClick={handleCreatePlaylist}
@@ -501,7 +469,6 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, onClose, isVisib
         </button>
       </div>
 
-      {/* Existing Playlists */}
       <div className="overflow-y-auto scrollbar-thin flex-1">
         {playlists.length === 0 ? (
           <div className="px-3 py-3 text-center">
@@ -550,10 +517,6 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, onClose, isVisib
   );
 }
 
-// ============================================
-// Hook for managing context menu state
-// ============================================
-
 export interface ContextMenuState {
   isOpen: boolean;
   position: { x: number; y: number };
@@ -567,12 +530,15 @@ export function useTrackContextMenu() {
     track: null,
   });
 
-  const openMenu = useCallback((
+  const openMenu = useCallback(async (
     e: React.MouseEvent,
     track: TrackContextMenuProps['track']
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    await notifyMenuOpening('track');
+    
     setState({
       isOpen: true,
       position: { x: e.clientX, y: e.clientY },

@@ -15,7 +15,7 @@ import { SettingsPage } from './pages/SettingsPage';
 const storageArea = browser.storage.local;
 
 export function App() {
-  const { currentRoute, navigate } = useRouterStore();
+  const { currentRoute, navigate, isInitialized } = useRouterStore();
   const toggle = usePlayerStore((s) => s.toggle);
   const hasTrack = usePlayerStore((s) => !!s.currentTrack);
 
@@ -43,8 +43,10 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggle, hasTrack]);
 
-  // Check for pending navigation from content script
+  // Check for pending navigation from content script ("Open in CampBand")
   useEffect(() => {
+    if (!isInitialized) return;
+
     async function checkPendingNavigation() {
       try {
         const result = await storageArea.get('pendingNavigation');
@@ -90,7 +92,7 @@ export function App() {
     return () => {
       storageArea.onChanged.removeListener(handleStorageChange);
     };
-  }, [navigate]);
+  }, [navigate, isInitialized]);
 
   const renderPage = () => {
     switch (currentRoute.name) {

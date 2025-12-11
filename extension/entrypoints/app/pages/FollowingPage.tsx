@@ -3,8 +3,8 @@ import { User, Grid3X3, List, Heart, MapPin, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatSmartDate } from '@/lib/utils/format';
 import { PageHeader } from '@/components/layout';
-import { Skeleton, Dropdown, type DropdownOption, ArtistContextMenu, useArtistContextMenu } from '@/components/ui';
-import { useLibraryStore, useRouterStore, useUIStore } from '@/lib/store';
+import { Skeleton, Dropdown, type DropdownOption, EmptyState, useUnlikeConfirm, useContextMenu } from '@/components/ui';
+import { useLibraryStore, useRouterStore, useUIStore, useSettingsStore } from '@/lib/store';
 import { buildBioUrl, ImageSizes } from '@/types';
 import type { FavoriteArtist } from '@/lib/db';
 
@@ -25,8 +25,24 @@ export function FollowingPage() {
   } = useLibraryStore();
   const { navigate } = useRouterStore();
   const { followingViewMode, setFollowingViewMode } = useUIStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnfollowArtist } = useUnlikeConfirm();
   const [sortBy, setSortBy] = useState<SortOption>('recent');
-  const { state: contextMenuState, openMenu: openContextMenu, closeMenu: closeContextMenu } = useArtistContextMenu();
+  const { openArtistMenu } = useContextMenu();
+
+  const handleUnfollow = async (artistId: number) => {
+    const artist = favoriteArtists.find(a => a.id === artistId);
+    if (!artist) return;
+
+    if (confirmOnUnlike) {
+      const confirmed = await confirmUnfollowArtist(artist.name);
+      if (confirmed) {
+        removeFavoriteArtist(artistId);
+      }
+    } else {
+      removeFavoriteArtist(artistId);
+    }
+  };
 
   useEffect(() => {
     init();
@@ -81,32 +97,27 @@ export function FollowingPage() {
 
       <div className="p-6">
         {favoriteArtists.length === 0 ? (
-          <EmptyState />
+          <EmptyState
+            icon={<User size={48} />}
+            title="No artists followed yet"
+            description="When you follow artists, they'll appear here. Start by searching for your favorite artists!"
+          />
         ) : followingViewMode === 'grid' ? (
           <ArtistsGrid
             artists={sortedArtists}
             onArtistClick={handleArtistClick}
-            onRemove={removeFavoriteArtist}
-            onContextMenu={openContextMenu}
+            onRemove={handleUnfollow}
+            onContextMenu={openArtistMenu}
           />
         ) : (
           <ArtistsList
             artists={sortedArtists}
             onArtistClick={handleArtistClick}
-            onRemove={removeFavoriteArtist}
-            onContextMenu={openContextMenu}
+            onRemove={handleUnfollow}
+            onContextMenu={openArtistMenu}
           />
         )}
       </div>
-
-      {/* Artist Context Menu */}
-      {contextMenuState.isOpen && contextMenuState.artist && (
-        <ArtistContextMenu
-          position={contextMenuState.position}
-          artist={contextMenuState.artist}
-          onClose={closeContextMenu}
-        />
-      )}
     </div>
   );
 }
@@ -331,22 +342,8 @@ function ArtistsList({ artists, onArtistClick, onRemove, onContextMenu }: Artist
 }
 
 // ============================================
-// Empty & Loading States
+// Loading State
 // ============================================
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-muted">
-      <div className="w-24 h-24 rounded-full bg-surface flex items-center justify-center mb-6">
-        <User size={48} className="opacity-50" />
-      </div>
-      <h2 className="text-lg font-medium text-text mb-2">No artists followed yet</h2>
-      <p className="text-center max-w-md">
-        When you follow artists, they'll appear here. Start by searching for your favorite artists!
-      </p>
-    </div>
-  );
-}
 
 function LoadingSkeleton({ viewMode }: { viewMode: 'grid' | 'list' | 'detailed' }) {
   if (viewMode === 'list') {

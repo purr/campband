@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Heart, Link, Check, ExternalLink, ListPlus, ListEnd } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useLibraryStore, useQueueStore } from '@/lib/store';
-import type { Album } from '@/types';
+import { Heart, Link, Check, ExternalLink, ListPlus, ListEnd, Play, Loader2 } from 'lucide-react';
+import { cn, registerContextMenu, unregisterContextMenu, notifyMenuClosed, notifyMenuOpening, scheduleCloseFromMousedown } from '@/lib/utils';
+import { useLibraryStore, useQueueStore, usePlayerStore, useSettingsStore } from '@/lib/store';
+import { useUnlikeConfirm } from './ConfirmProvider';
+import type { Album, Track } from '@/types';
 
 interface AlbumContextMenuProps {
   /** Position of the menu */
@@ -15,6 +16,9 @@ interface AlbumContextMenuProps {
     artist: string;
     url: string;
     artId?: number;
+    bandId?: number;
+    bandUrl?: string;
+    releaseDate?: string;
     tracks?: Array<{
       id: number;
       title: string;
@@ -29,11 +33,15 @@ interface AlbumContextMenuProps {
 
 export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuProps) {
   const { isFavoriteAlbum, addFavoriteAlbum, removeFavoriteAlbum } = useLibraryStore();
-  const { addMultipleToQueue, insertMultipleNext } = useQueueStore();
+  const { setQueue, addMultipleToQueue, insertMultipleNext } = useQueueStore();
+  const { play } = usePlayerStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnlikeAlbum } = useUnlikeConfirm();
   const [isVisible, setIsVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [playingNext, setPlayingNext] = useState(false);
   const [addedToQueue, setAddedToQueue] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const [adjustedPosition, setAdjustedPosition] = useState(position);
 
@@ -48,7 +56,7 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
     return () => cancelAnimationFrame(timer);
   }, []);
 
-  // Animated close
+  // Animated close - does NOT call notifyMenuClosed
   const handleClose = useCallback(() => {
     setIsVisible(false);
     setTimeout(() => {
@@ -56,11 +64,21 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
     }, 150);
   }, [onClose]);
 
+  // Register with coordinator and notify on unmount
+  useEffect(() => {
+    registerContextMenu('album', handleClose);
+    return () => {
+      unregisterContextMenu('album');
+      notifyMenuClosed('album');
+    };
+  }, [handleClose]);
+
   // Close on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        handleClose();
+        // Use scheduled close so it can be cancelled if another menu opens
+        scheduleCloseFromMousedown('album');
       }
     };
 
@@ -73,14 +91,12 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
     // Small delay to prevent immediate close
     const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('contextmenu', handleClickOutside);
     }, 10);
     document.addEventListener('keydown', handleEscape);
 
     return () => {
       clearTimeout(timer);
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('contextmenu', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [handleClose]);
@@ -122,41 +138,91 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
     }
   };
 
-  const handleToggleLike = () => {
+  const handleToggleLike = async () => {
     if (isLiked) {
-      removeFavoriteAlbum(album.id);
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnlikeAlbum(album.title);
+        if (confirmed) {
+          removeFavoriteAlbum(album.id);
+        }
+      } else {
+        removeFavoriteAlbum(album.id);
+      }
     } else {
-      addFavoriteAlbum(album as Album);
+      // Build a proper Album object with all required fields
+      addFavoriteAlbum({
+        id: album.id,
+        title: album.title,
+        artist: album.artist,
+        url: album.url,
+        artId: album.artId,
+        bandId: album.bandId,
+        bandUrl: album.bandUrl,
+        releaseDate: album.releaseDate,
+      } as Album);
     }
     handleClose();
   };
 
-  const handlePlayNext = () => {
+  // Helper to get tracks - loads them if not present
+  const getAlbumTracks = async (): Promise<Track[]> => {
+    // If tracks are already loaded, use them
     if (album.tracks && album.tracks.length > 0) {
-      const streamableTracks = album.tracks.filter(t => t.streamUrl);
-      if (streamableTracks.length > 0) {
-        insertMultipleNext(streamableTracks as any);
+      return album.tracks.filter(t => t.streamUrl) as Track[];
+    }
+
+    // Otherwise fetch from the album URL
+    const { fetchReleasePage } = await import('@/lib/api');
+    const releaseData = await fetchReleasePage(album.url);
+    return releaseData.tracks.filter(t => t.streamUrl);
+  };
+
+  const handlePlay = async () => {
+    setIsLoading(true);
+    try {
+      const tracks = await getAlbumTracks();
+      if (tracks.length > 0) {
+        setQueue(tracks);
+        play();
+      }
+    } catch (e) {
+      console.error('[AlbumContextMenu] Failed to play:', e);
+    }
+    handleClose();
+  };
+
+  const handlePlayNext = async () => {
+    setIsLoading(true);
+    try {
+      const tracks = await getAlbumTracks();
+      if (tracks.length > 0) {
+        insertMultipleNext(tracks);
         setPlayingNext(true);
         setTimeout(() => {
           handleClose();
         }, 800);
         return;
       }
+    } catch (e) {
+      console.error('[AlbumContextMenu] Failed to play next:', e);
     }
     handleClose();
   };
 
-  const handleAddToQueue = () => {
-    if (album.tracks && album.tracks.length > 0) {
-      const streamableTracks = album.tracks.filter(t => t.streamUrl);
-      if (streamableTracks.length > 0) {
-        addMultipleToQueue(streamableTracks as any);
+  const handleAddToQueue = async () => {
+    setIsLoading(true);
+    try {
+      const tracks = await getAlbumTracks();
+      if (tracks.length > 0) {
+        addMultipleToQueue(tracks);
         setAddedToQueue(true);
         setTimeout(() => {
           handleClose();
         }, 800);
         return;
       }
+    } catch (e) {
+      console.error('[AlbumContextMenu] Failed to add to queue:', e);
     }
     handleClose();
   };
@@ -165,8 +231,6 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
     window.open(album.url, '_blank', 'noopener,noreferrer');
     handleClose();
   };
-
-  const hasStreamableTracks = album.tracks?.some(t => t.streamUrl);
 
   // Render via portal to escape any parent overflow/z-index issues
   return createPortal(
@@ -197,6 +261,79 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
 
       {/* Menu Items */}
       <div className="px-1">
+        {/* Play */}
+        <button
+          onClick={handlePlay}
+          disabled={isLoading}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+            'text-sm text-left',
+            'text-text hover:bg-white/10',
+            'transition-colors duration-100',
+            isLoading && 'opacity-60'
+          )}
+        >
+          {isLoading ? (
+            <Loader2 size={16} className="text-text/60 animate-spin" />
+          ) : (
+            <Play size={16} className="text-text/60" />
+          )}
+          Play
+        </button>
+
+        {/* Play Next */}
+        <button
+          onClick={handlePlayNext}
+          disabled={isLoading}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+            'text-sm text-left',
+            'text-text hover:bg-white/10',
+            'transition-colors duration-100',
+            isLoading && 'opacity-60'
+          )}
+        >
+          {playingNext ? (
+            <>
+              <Check size={16} className="text-foam" />
+              <span className="text-foam">Playing next!</span>
+            </>
+          ) : (
+            <>
+              <ListPlus size={16} className="text-text/60" />
+              Play Next
+            </>
+          )}
+        </button>
+
+        {/* Add to Queue */}
+        <button
+          onClick={handleAddToQueue}
+          disabled={isLoading}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+            'text-sm text-left',
+            'text-text hover:bg-white/10',
+            'transition-colors duration-100',
+            isLoading && 'opacity-60'
+          )}
+        >
+          {addedToQueue ? (
+            <>
+              <Check size={16} className="text-foam" />
+              <span className="text-foam">Added!</span>
+            </>
+          ) : (
+            <>
+              <ListEnd size={16} className="text-text/60" />
+              Add to Queue
+            </>
+          )}
+        </button>
+
+        {/* Divider */}
+        <div className="my-1 border-t border-white/5" />
+
         {/* Like / Unlike */}
         <button
           onClick={handleToggleLike}
@@ -212,62 +349,6 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
           <Heart size={16} className={isLiked ? 'text-love' : 'text-text/60'} fill={isLiked ? 'currentColor' : 'none'} />
           {isLiked ? 'Unlike' : 'Like'}
         </button>
-
-        {/* Play Next */}
-        {album.tracks && album.tracks.length > 0 && (
-          <button
-            onClick={handlePlayNext}
-            disabled={!hasStreamableTracks}
-            className={cn(
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
-              'text-sm text-left',
-              'transition-colors duration-100',
-              hasStreamableTracks
-                ? 'text-text hover:bg-white/10'
-                : 'text-text/60 cursor-not-allowed'
-            )}
-          >
-            {playingNext ? (
-              <>
-                <Check size={16} className="text-foam" />
-                <span className="text-foam">Playing next!</span>
-              </>
-            ) : (
-              <>
-                <ListPlus size={16} className="text-text/60" />
-                Play Next
-              </>
-            )}
-          </button>
-        )}
-
-        {/* Add to Queue */}
-        {album.tracks && album.tracks.length > 0 && (
-          <button
-            onClick={handleAddToQueue}
-            disabled={!hasStreamableTracks}
-            className={cn(
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
-              'text-sm text-left',
-              'transition-colors duration-100',
-              hasStreamableTracks
-                ? 'text-text hover:bg-white/10'
-                : 'text-text/60 cursor-not-allowed'
-            )}
-          >
-            {addedToQueue ? (
-              <>
-                <Check size={16} className="text-foam" />
-                <span className="text-foam">Added!</span>
-              </>
-            ) : (
-              <>
-                <ListEnd size={16} className="text-text/60" />
-                Add to Queue
-              </>
-            )}
-          </button>
-        )}
 
         {/* Divider */}
         <div className="my-1 border-t border-white/5" />
@@ -309,6 +390,7 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
           Open in Bandcamp
         </button>
       </div>
+
     </div>,
     document.body
   );
@@ -331,12 +413,16 @@ export function useAlbumContextMenu() {
     album: null,
   });
 
-  const openMenu = useCallback((
+  const openMenu = useCallback(async (
     e: React.MouseEvent,
     album: AlbumContextMenuProps['album']
   ) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // Notify coordinator - this will close any other open menu first
+    await notifyMenuOpening('album');
+
     setState({
       isOpen: true,
       position: { x: e.clientX, y: e.clientY },

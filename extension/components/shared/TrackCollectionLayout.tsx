@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Play, Shuffle, Heart, ListPlus, Check, ExternalLink, Pencil, Trash2, Calendar, Clock, Pause, EyeOff } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useState } from 'react';
+import { Play, Shuffle, Heart, ListPlus, Check, ExternalLink, Pencil, Trash2, Calendar, Clock, EyeOff } from 'lucide-react';
+import { cn, useConfirmationState, toPlayableTrack } from '@/lib/utils';
 import { formatTime, formatSmartDate } from '@/lib/utils/format';
-import { Button, ImageBackdrop, Skeleton, TrackContextMenu, useTrackContextMenu, PlayingIndicator } from '@/components/ui';
-import { useLibraryStore, useQueueStore, useRouterStore } from '@/lib/store';
+import { Button, ImageBackdrop, Skeleton, PlayingIndicator, HeartButton, AddToQueueButton, useUnlikeConfirm, useContextMenu } from '@/components/ui';
+import { useLibraryStore, useQueueStore, useRouterStore, useSettingsStore } from '@/lib/store';
 import { buildArtUrl, ImageSizes } from '@/types';
 
 // ============================================
@@ -93,20 +93,13 @@ export function CollectionHeader({
   onDelete,
   accentColor = 'rose',
 }: CollectionHeaderProps) {
-  const [showQueueCheck, setShowQueueCheck] = useState(false);
+  const [showQueueCheck, triggerQueueCheck] = useConfirmationState();
   const coverUrl = typeof cover === 'string' ? cover : undefined;
 
   const handleAddToQueue = () => {
     onAddToQueue?.();
-    setShowQueueCheck(true);
+    triggerQueueCheck();
   };
-
-  useEffect(() => {
-    if (showQueueCheck) {
-      const timer = setTimeout(() => setShowQueueCheck(false), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [showQueueCheck]);
 
   // Format release date or created date
   const formattedDate = releaseDate
@@ -354,12 +347,35 @@ export interface TrackItem {
   duration: number;
   streamUrl?: string;
   trackNum?: number;
+  // Additional fields needed for favoriting
+  artId?: number;
+  albumId?: number;
+  albumTitle?: string;
+  albumUrl?: string;
+  bandId?: number;
 }
 
 export function TrackList({ tracks, onTrackPlay, currentTrackId, isPlaying }: TrackListProps) {
   const { isFavoriteTrack, addFavoriteTrack, removeFavoriteTrack } = useLibraryStore();
   const { addToQueue } = useQueueStore();
-  const { state: contextMenuState, openMenu, closeMenu } = useTrackContextMenu();
+  const { openTrackMenu } = useContextMenu();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnlikeTrack } = useUnlikeConfirm();
+
+  const handleToggleFavorite = async (track: TrackItem) => {
+    if (isFavoriteTrack(track.id)) {
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnlikeTrack(track.title);
+        if (confirmed) {
+          removeFavoriteTrack(track.id);
+        }
+      } else {
+        removeFavoriteTrack(track.id);
+      }
+    } else {
+      addFavoriteTrack(toPlayableTrack(track));
+    }
+  };
 
   return (
     <div className="px-8 py-6">
@@ -385,27 +401,12 @@ export function TrackList({ tracks, onTrackPlay, currentTrackId, isPlaying }: Tr
             isPlaying={isPlaying && currentTrackId === track.id}
             isFavorite={isFavoriteTrack(track.id)}
             onPlay={() => onTrackPlay?.(track, index)}
-            onFavorite={() => {
-              if (isFavoriteTrack(track.id)) {
-                removeFavoriteTrack(track.id);
-              } else {
-                addFavoriteTrack(track as any);
-              }
-            }}
-            onAddToQueue={() => addToQueue(track as any)}
-            onContextMenu={(e) => openMenu(e, track as any)}
+            onFavorite={() => handleToggleFavorite(track)}
+            onAddToQueue={() => addToQueue(toPlayableTrack(track))}
+            onContextMenu={(e) => openTrackMenu(e, track)}
           />
         ))}
       </div>
-
-      {/* Context Menu */}
-      {contextMenuState.isOpen && contextMenuState.track && (
-        <TrackContextMenu
-          position={contextMenuState.position}
-          track={contextMenuState.track}
-          onClose={closeMenu}
-        />
-      )}
     </div>
   );
 }
@@ -433,15 +434,8 @@ function TrackListRow({
   onAddToQueue,
   onContextMenu,
 }: TrackListRowProps) {
-  const [showQueueCheck, setShowQueueCheck] = useState(false);
   const isStreamable = !!track.streamUrl;
   const { navigate } = useRouterStore();
-
-  const handleAddToQueue = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onAddToQueue();
-    setShowQueueCheck(true);
-  };
 
   const handleArtistClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -449,13 +443,6 @@ function TrackListRow({
       navigate({ name: 'artist', url: track.bandUrl });
     }
   };
-
-  useEffect(() => {
-    if (showQueueCheck) {
-      const timer = setTimeout(() => setShowQueueCheck(false), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [showQueueCheck]);
 
   const artistName = track.artist || track.bandName;
 
@@ -473,7 +460,7 @@ function TrackListRow({
       )}
       style={{ gridTemplateColumns: TRACK_ROW.COLS_BASE }}
     >
-      {/* Track number / Play indicator - match playlist cover size */}
+      {/* Track number / Play indicator */}
       <div className={cn(TRACK_ROW.FIRST_COL_SIZE, 'flex items-center justify-center')}>
         <button
           onClick={onPlay}
@@ -504,7 +491,7 @@ function TrackListRow({
         </button>
       </div>
 
-      {/* Title & Artist - always 2 lines for consistent height */}
+      {/* Title & Artist */}
       <div className="min-w-0">
         <button
           onClick={onPlay}
@@ -537,37 +524,18 @@ function TrackListRow({
 
       {/* Action buttons (heart + queue) */}
       <div className="flex items-center justify-end gap-1">
-        <button
-          onClick={(e) => { e.stopPropagation(); onFavorite(); }}
-          className={cn(
-            'p-1.5 rounded-full transition-all duration-200',
-            'hover:bg-highlight-med active:scale-90',
-            'opacity-0 group-hover:opacity-100',
-            isFavorite ? 'text-love opacity-100' : 'text-text/60 hover:text-love'
-          )}
-          aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-        >
-          <Heart size={16} fill={isFavorite ? 'currentColor' : 'none'} />
-        </button>
-
-        <button
-          onClick={handleAddToQueue}
+        <HeartButton
+          isFavorite={isFavorite}
+          onClick={onFavorite}
+          size="sm"
+          showOnGroupHover
+        />
+        <AddToQueueButton
+          onClick={onAddToQueue}
+          size="sm"
           disabled={!isStreamable}
-          className={cn(
-            'p-1.5 rounded-full transition-all duration-200',
-            'hover:bg-highlight-med active:scale-90',
-            'opacity-0 group-hover:opacity-100',
-            showQueueCheck ? 'text-foam opacity-100' : 'text-text/60 hover:text-text',
-            !isStreamable && 'cursor-not-allowed'
-          )}
-          aria-label="Add to queue"
-        >
-          {showQueueCheck ? (
-            <Check size={16} className="animate-scale-in" />
-          ) : (
-            <ListPlus size={16} />
-          )}
-        </button>
+          showOnGroupHover
+        />
       </div>
 
       {/* Duration */}
@@ -639,7 +607,24 @@ export function PlaylistTrackList({
 }: PlaylistTrackListProps) {
   const { isFavoriteTrack, addFavoriteTrack, removeFavoriteTrack } = useLibraryStore();
   const { addToQueue } = useQueueStore();
-  const { state: contextMenuState, openMenu, closeMenu } = useTrackContextMenu();
+  const { openTrackMenu } = useContextMenu();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnlikeTrack } = useUnlikeConfirm();
+
+  const handleToggleFavorite = async (track: PlaylistTrackItem) => {
+    if (isFavoriteTrack(track.id)) {
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnlikeTrack(track.title);
+        if (confirmed) {
+          removeFavoriteTrack(track.id);
+        }
+      } else {
+        removeFavoriteTrack(track.id);
+      }
+    } else {
+      addFavoriteTrack(toPlayableTrack(track));
+    }
+  };
 
   return (
     <div className="px-8 py-6">
@@ -667,27 +652,12 @@ export function PlaylistTrackList({
             isPlaying={isPlaying && currentTrackId === track.id}
             isFavorite={isFavoriteTrack(track.id)}
             onPlay={() => onTrackPlay?.(track, index)}
-            onFavorite={() => {
-              if (isFavoriteTrack(track.id)) {
-                removeFavoriteTrack(track.id);
-              } else {
-                addFavoriteTrack(track as any);
-              }
-            }}
-            onAddToQueue={() => addToQueue(track as any)}
-            onContextMenu={(e) => openMenu(e, track as any)}
+            onFavorite={() => handleToggleFavorite(track)}
+            onAddToQueue={() => addToQueue(toPlayableTrack(track))}
+            onContextMenu={(e) => openTrackMenu(e, track)}
           />
         ))}
       </div>
-
-      {/* Context Menu */}
-      {contextMenuState.isOpen && contextMenuState.track && (
-        <TrackContextMenu
-          position={contextMenuState.position}
-          track={contextMenuState.track}
-          onClose={closeMenu}
-        />
-      )}
     </div>
   );
 }
@@ -715,16 +685,9 @@ function PlaylistTrackRow({
   onAddToQueue,
   onContextMenu,
 }: PlaylistTrackRowProps) {
-  const [showQueueCheck, setShowQueueCheck] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const isStreamable = !!track.streamUrl;
   const { navigate } = useRouterStore();
-
-  const handleAddToQueue = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onAddToQueue();
-    setShowQueueCheck(true);
-  };
 
   const handleArtistClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -739,13 +702,6 @@ function PlaylistTrackRow({
       navigate({ name: 'album', url: track.albumUrl });
     }
   };
-
-  useEffect(() => {
-    if (showQueueCheck) {
-      const timer = setTimeout(() => setShowQueueCheck(false), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [showQueueCheck]);
 
   return (
     <div
@@ -848,37 +804,18 @@ function PlaylistTrackRow({
 
       {/* Action buttons (heart + queue) */}
       <div className="flex items-center justify-end gap-1">
-        <button
-          onClick={(e) => { e.stopPropagation(); onFavorite(); }}
-          className={cn(
-            'p-1.5 rounded-full transition-all duration-200',
-            'hover:bg-highlight-med active:scale-90',
-            'opacity-0 group-hover:opacity-100',
-            isFavorite ? 'text-love opacity-100' : 'text-text/60 hover:text-love'
-          )}
-          aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-        >
-          <Heart size={16} fill={isFavorite ? 'currentColor' : 'none'} />
-        </button>
-
-        <button
-          onClick={handleAddToQueue}
+        <HeartButton
+          isFavorite={isFavorite}
+          onClick={onFavorite}
+          size="sm"
+          showOnGroupHover
+        />
+        <AddToQueueButton
+          onClick={onAddToQueue}
+          size="sm"
           disabled={!isStreamable}
-          className={cn(
-            'p-1.5 rounded-full transition-all duration-200',
-            'hover:bg-highlight-med active:scale-90',
-            'opacity-0 group-hover:opacity-100',
-            showQueueCheck ? 'text-foam opacity-100' : 'text-text/60 hover:text-text',
-            !isStreamable && 'cursor-not-allowed'
-          )}
-          aria-label="Add to queue"
-        >
-          {showQueueCheck ? (
-            <Check size={16} className="animate-scale-in" />
-          ) : (
-            <ListPlus size={16} />
-          )}
-        </button>
+          showOnGroupHover
+        />
       </div>
 
       {/* Duration */}

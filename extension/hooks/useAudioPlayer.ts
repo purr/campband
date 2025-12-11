@@ -53,7 +53,7 @@ export function useAudioPlayer() {
     queueRef.current = { queue, currentIndex };
   }, [queue, currentIndex]);
 
-  // Update audio engine with settings
+  // Update audio engine with ALL settings
   useEffect(() => {
     const eqGains = audioSettings.equalizerPreset === 'custom'
       ? audioSettings.customEqGains
@@ -64,6 +64,9 @@ export function useAudioPlayer() {
       crossfadeDuration: audioSettings.crossfadeDuration,
       equalizerEnabled: audioSettings.equalizerEnabled,
       eqGains,
+      volumeNormalization: audioSettings.volumeNormalization,
+      monoAudio: audioSettings.monoAudio,
+      gaplessPlayback: audioSettings.gaplessPlayback,
     });
   }, [audioSettings]);
 
@@ -168,7 +171,8 @@ export function useAudioPlayer() {
 
   // Load when current track changes
   useEffect(() => {
-    if (currentTrack?.streamUrl) {
+    // Must have a valid stream URL (starts with http)
+    if (currentTrack?.streamUrl && currentTrack.streamUrl.startsWith('http')) {
       shouldAutoPlay.current = isPlaying;
       audioEngine.load(currentTrack.streamUrl);
 
@@ -188,20 +192,36 @@ export function useAudioPlayer() {
     }
   }, [currentTrack?.id, currentTrack?.streamUrl]);
 
+  // Preload next track for gapless/crossfade playback
+  useEffect(() => {
+    if (!audioSettings.gaplessPlayback && !audioSettings.crossfadeEnabled) return;
+    
+    const nextTrack = queue[currentIndex + 1];
+    if (nextTrack?.streamUrl && nextTrack.streamUrl.startsWith('http')) {
+      // Preload after a short delay to not interfere with current load
+      const timeout = setTimeout(() => {
+        audioEngine.preloadNext(nextTrack.streamUrl);
+      }, 2000);
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [currentIndex, queue, audioSettings.gaplessPlayback, audioSettings.crossfadeEnabled]);
+
   // Handle play/pause state changes
   useEffect(() => {
     if (shouldAutoPlay.current) {
       return;
     }
 
-    if (isPlaying && currentTrack?.streamUrl) {
+    // Must have a valid stream URL to play
+    if (isPlaying && currentTrack?.streamUrl && currentTrack.streamUrl.startsWith('http')) {
       audioEngine.play().catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') {
           return;
         }
         console.error('[useAudioPlayer] Play failed:', err);
       });
-    } else {
+    } else if (!isPlaying) {
       audioEngine.pause();
     }
   }, [isPlaying, currentTrack?.streamUrl]);

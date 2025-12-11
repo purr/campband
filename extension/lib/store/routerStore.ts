@@ -1,14 +1,14 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { hashToRoute, routeToHash } from '@/lib/utils';
 
 export type Route =
   | { name: 'home' }
   | { name: 'search'; query?: string }
   | { name: 'artist'; url: string }
   | { name: 'album'; url: string }
-  | { name: 'library' }  // Legacy - kept for backwards compatibility
+  | { name: 'library' }
   | { name: 'following' }
-  | { name: 'liked' }  // Special playlist for liked tracks
+  | { name: 'liked' }
   | { name: 'playlist'; id: number }
   | { name: 'settings' };
 
@@ -26,78 +26,104 @@ function isSameRoute(a: Route, b: Route): boolean {
     case 'playlist':
       return (b as { name: 'playlist'; id: number }).id === a.id;
     default:
-      return true; // home, library, following, liked, settings - just compare name
+      return true;
   }
 }
 
 interface RouterState {
   currentRoute: Route;
-  history: Route[];
-  forwardStack: Route[];
-
-  navigate: (route: Route) => void;
+  isInitialized: boolean;
+  
+  // Navigation
+  navigate: (route: Route, options?: { replace?: boolean }) => void;
+  
+  // Browser history integration
   goBack: () => void;
   goForward: () => void;
-  canGoBack: () => boolean;
-  canGoForward: () => boolean;
+  
+  // Internal
+  _setRouteFromHash: (route: Route) => void;
+  _initialize: () => void;
 }
 
-export const useRouterStore = create<RouterState>()(
-  persist(
-    (set, get) => ({
-      currentRoute: { name: 'home' },
-      history: [],
-      forwardStack: [],
+export const useRouterStore = create<RouterState>()((set, get) => ({
+  currentRoute: { name: 'home' },
+  isInitialized: false,
 
-      navigate: (route) => {
-        const { currentRoute } = get();
+  navigate: (route, options) => {
+    const { currentRoute } = get();
 
-        // Don't navigate if it's the same route
-        if (isSameRoute(currentRoute, route)) {
-          return;
-        }
-
-        set((state) => ({
-          currentRoute: route,
-          history: [...state.history, state.currentRoute],
-          forwardStack: [], // Clear forward stack on new navigation
-        }));
-      },
-
-      goBack: () => {
-        const { history, currentRoute } = get();
-        if (history.length === 0) return;
-
-        const previousRoute = history[history.length - 1];
-        set({
-          currentRoute: previousRoute,
-          history: history.slice(0, -1),
-          forwardStack: [currentRoute, ...get().forwardStack],
-        });
-      },
-
-      goForward: () => {
-        const { forwardStack, currentRoute, history } = get();
-        if (forwardStack.length === 0) return;
-
-        const nextRoute = forwardStack[0];
-        set({
-          currentRoute: nextRoute,
-          history: [...history, currentRoute],
-          forwardStack: forwardStack.slice(1),
-        });
-      },
-
-      canGoBack: () => get().history.length > 0,
-      canGoForward: () => get().forwardStack.length > 0,
-    }),
-    {
-      name: 'campband-router',
-      partialize: (state) => ({
-        currentRoute: state.currentRoute,
-        history: state.history,
-        forwardStack: state.forwardStack,
-      }),
+    // Don't navigate if it's the same route
+    if (isSameRoute(currentRoute, route)) {
+      return;
     }
-  )
-);
+
+    // Update URL hash (this triggers browser history)
+    const hash = routeToHash(route);
+    
+    if (options?.replace) {
+      window.history.replaceState(null, '', hash);
+    } else {
+      window.history.pushState(null, '', hash);
+    }
+
+    // Update state
+    set({ currentRoute: route });
+  },
+
+  goBack: () => {
+    window.history.back();
+  },
+
+  goForward: () => {
+    window.history.forward();
+  },
+
+  _setRouteFromHash: (route) => {
+    set({ currentRoute: route });
+  },
+
+  _initialize: () => {
+    const { isInitialized } = get();
+    if (isInitialized) return;
+
+    // Read initial route from URL hash
+    const hash = window.location.hash;
+    const initialRoute = hash ? hashToRoute(hash) : { name: 'home' as const };
+    
+    // If no hash, set it to home
+    if (!hash || hash === '#' || hash === '#/') {
+      window.history.replaceState(null, '', '#/');
+    }
+
+    set({ 
+      currentRoute: initialRoute,
+      isInitialized: true,
+    });
+
+    // Listen for browser back/forward
+    const handlePopState = () => {
+      const route = hashToRoute(window.location.hash);
+      get()._setRouteFromHash(route);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    // Cleanup function (won't be called in practice, but good form)
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  },
+}));
+
+// Initialize on import
+if (typeof window !== 'undefined') {
+  // Defer initialization to ensure DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      useRouterStore.getState()._initialize();
+    });
+  } else {
+    useRouterStore.getState()._initialize();
+  }
+}

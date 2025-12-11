@@ -215,6 +215,11 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
           <ReleaseGrid
             releases={currentArtist.releases}
             viewMode={artistDiscographyViewMode}
+            bandInfo={{
+              id: currentArtist.band.id,
+              name: currentArtist.band.name,
+              url: currentArtist.band.url,
+            }}
             onReleaseClick={handleReleaseClick}
             onReleasePlay={handleReleasePlay}
           />

@@ -14,7 +14,7 @@
 
 ### Setup
 - ✅ Initialize WXT project with React + TypeScript
-- ✅ Configure Tailwind CSS with Rose Pine theme
+- ✅ Configure Tailwind CSS with Rosé Pine theme
 - ✅ Set up project structure (components, lib, hooks, types)
 - ✅ Set up Zustand stores
 - ✅ Set up IndexedDB with Dexie.js
@@ -28,10 +28,12 @@
 - ✅ Error handling & retry logic
 - ✅ Rate limiting (delays between requests)
 - ✅ Centralized image URL helpers (getArtworkUrl, extractArtIdFromUrl)
+- ✅ Single-release artist support (/music → 303 redirect detection)
 
 ### Basic UI Shell
 - ✅ App layout (sidebar, main content, player bar)
 - ✅ Navigation system (SPA router with back/forward)
+- ✅ URL routing with /a/ (album) and /t/ (track) prefixes
 - ✅ Loading states / skeletons
 - [ ] Error boundaries
 
@@ -111,11 +113,12 @@
 ## Phase 4: Library & Persistence ✅
 
 ### Database Setup
-- ✅ Set up Dexie.js schema
-- ✅ Favorites table
+- ✅ Set up Dexie.js schema (v2 with all tables)
+- ✅ Favorites tables (artists, albums, tracks)
 - ✅ History table
-- ✅ Playlists table
-- [ ] Cache table
+- ✅ Playlists table (with playlistTracks junction)
+- ✅ Track stats table
+- ✅ Cache tables (schema ready: cachedArtists, cachedAlbums)
 
 ### Favorites
 - ✅ Favorite artists
@@ -142,9 +145,10 @@
 - ⏸️ History UI hidden for cleaner sidebar design (data still tracked)
 
 ### Caching
-- [ ] Cache artist metadata
-- [ ] Cache album/track metadata
-- [ ] Cache invalidation strategy
+- ✅ Cache tables in database schema (ready for use)
+- [ ] Implement artist metadata caching
+- [ ] Implement album/track metadata caching
+- [ ] Cache invalidation strategy (TTL-based)
 - [ ] User settings for cache size
 
 ---
@@ -152,9 +156,12 @@
 ## Phase 5: Multi-Tab & Background 🟡
 
 ### Background Service Worker
-- [ ] Centralized playback state
+- ✅ Background script (icon click, message handling)
+- ✅ Content script for Bandcamp pages ("Open in CampBand" button)
+- ✅ Pending navigation via storage.local
+- ✅ Media session API (OS controls - play/pause/skip/metadata)
+- [ ] Centralized playback state (move audio to background)
 - [ ] Tab communication (play/pause sync)
-- ✅ Media session API (OS controls)
 
 ### Multi-Tab Sync
 - [ ] Detect playback in other tabs
@@ -199,7 +206,7 @@
 ### First-Time Experience
 - ✅ Welcome screen (home page)
 - ✅ Tips/hints
-- [ ] Empty states with guidance
+- ✅ Empty states with guidance (shared EmptyState component)
 
 ---
 
@@ -224,36 +231,78 @@
 
 ## Known Issues
 
-- Mouse4/Mouse5 navigation blocked by Firefox (use UI buttons instead)
-- Stream URLs expire after ~24 hours
-- Some collaborative releases on Bandcamp use lazy-loaded images (handled via data-original attribute)
-- Backdrop-filter doesn't work when nested - popups must use React portals
+- **Mouse Navigation**: Mouse4/Mouse5 (back/forward) buttons blocked by Firefox - use UI buttons instead
+- **Stream Expiry**: Bandcamp streaming URLs expire after ~24 hours
+- **Lazy Images**: Some collaborative releases use lazy-loaded images (handled via data-original attribute)
+- **Backdrop-Filter Nesting**: CSS backdrop-filter doesn't work when nested inside another element with backdrop-filter - all popups and modals render via React Portal to document.body to ensure glass effects work correctly
+- **Firefox MV2**: Using Manifest V2 for Firefox compatibility - session storage not available, using storage.local instead
 
 ## Recently Fixed
-- ✅ Progress bar now resets to 0 when switching tracks
-- ✅ Clear queue no longer removes currently playing track
-- ✅ Adding to playlist no longer adds to liked tracks
-- ✅ Sidebar auto-collapses on narrow screens, auto-expands when widened
+- ✅ Progress bar resets to 0 on track change (requestAnimationFrame sync)
+- ✅ Clear queue preserves currently playing track
+- ✅ Playlist add/remove separated from like functionality
+- ✅ Sidebar auto-collapse on narrow screens, auto-expand when widened
+- ✅ Sidebar collapse bug: Manual expand then narrow screen now auto-collapses correctly
+- ✅ Volume popup renders via portal (glass effect works)
+- ✅ Context menus render via portal (glass effect works)
+- ✅ Smooth progress bar animation using requestAnimationFrame
+- ✅ Code cleanup: Created shared utilities (toPlayableTrack, useConfirmationState, etc.)
+- ✅ Code cleanup: Removed dead code (album/TrackList.tsx, album/AlbumHeader.tsx)
+- ✅ Code cleanup: HeartButton/AddToQueueButton now used consistently across all track rows
+- ✅ Code cleanup: Shared EmptyState component for all empty list/grid states
+- ✅ Liking consistency: All favorite actions (tracks, albums, artists) now use same store functions with complete data
+- ✅ Album context menu now passes complete bandId/bandUrl for proper favoriting
+- ✅ Playback source tracking: Clicking album art in player bar navigates to where playback started
+- ✅ Unified PlaylistModal: Same modal used for create and edit, with real-time name validation
+- ✅ URL-based routing: Pages reflect in URL hash, browser back/forward works
+- ✅ Single-release artists: /music 303 redirect detection now works properly
+- ✅ Track vs Album URL distinction: Uses /a/ and /t/ prefixes in hash routing
+- ✅ Rose-pine cursors and selection colors added to globals.css
+- ✅ Sidebar album context menu (right-click on liked albums)
+- ✅ Sidebar playlist context menu (right-click: play, edit, delete, queue)
+
+---
+
+*Last updated: December 2024*
 
 ---
 
 ## Ideas Backlog
 
+### Features
 - Collaborative playlists (via export/import)
-- Artist radio (play similar)
+- Artist radio (play similar artists/albums)
 - Integration with MusicBrainz for better metadata
 - PWA version (non-extension)
+- Chrome extension port (MV3)
+- Re-enable History in sidebar (data is tracked, UI hidden)
+
+### Queue & Playlist Improvements
 - Drag & drop queue reordering
 - Drag & drop playlist reordering
-- Context menu: Share to social
-- ✅ Context menu: Copy Bandcamp link (for tracks, albums, artists)
 - Context menu: Add album to playlist
-- Context menu: Go to artist/album
-- Re-enable History in sidebar (currently hidden)
-- More keyboard shortcuts:
+- Context menu: Share to social
+
+### Context Menus
+- ✅ Copy Bandcamp link (tracks, albums, artists)
+- ✅ Like/Unlike from context menu
+- ✅ Add to playlist submenu with track highlighting
+- ✅ Sidebar album right-click menu (like, queue, copy link, open in Bandcamp)
+- ✅ Sidebar playlist right-click menu (play, play next, add to queue, edit, delete)
+- ✅ Album context menu: Play, Play Next, Add to Queue
+- ✅ Artist context menu: Play, Play Next, Add to Queue (loads releases dynamically)
+- Go to artist from track/album context
+- Go to album from track context
+
+### Keyboard Shortcuts
+Current:
+- ✅ Spacebar: play/pause
+
+Planned:
   - Arrow keys for seek (left/right)
   - M for mute toggle
   - N for next track, P for previous
   - S for shuffle toggle, R for repeat toggle
   - / or Ctrl+K for search focus
   - Escape to close panels/modals
+- Up/Down for volume

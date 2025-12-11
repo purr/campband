@@ -8,10 +8,12 @@ export { AddToQueueButton } from './AddToQueueButton';
 export { ClickableText } from './ClickableText';
 export { TrackRow } from './TrackRow';
 export { ImageBackdrop } from './ImageBackdrop';
-export { CreatePlaylistModal } from './CreatePlaylistModal';
-export { ContextMenuProvider, useContextMenu } from './ContextMenu';
+export { BaseModal, ModalButton, ModalButtonGroup, type BaseModalProps, type BaseModalRef } from './BaseModal';
+export { PlaylistModal, CreatePlaylistModal } from './PlaylistModal';
+export { ConfirmProvider, useConfirm, useUnlikeConfirm } from './ConfirmProvider';
+export { ContextMenuProvider } from './ContextMenu';
 export { Dropdown, type DropdownOption } from './Dropdown';
-export { TrackContextMenu, useTrackContextMenu, type ContextMenuState } from './TrackContextMenu';
-export { ArtistContextMenu, useArtistContextMenu, type ArtistContextMenuState } from './ArtistContextMenu';
-export { AlbumContextMenu, useAlbumContextMenu, type AlbumContextMenuState } from './AlbumContextMenu';
+// New unified context menu system
+export { GlobalContextMenu, useContextMenu } from './GlobalContextMenu';
 export { PlayingIndicator } from './PlayingIndicator';
+export { EmptyState, type EmptyStateProps } from './EmptyState';

@@ -10,7 +10,7 @@ A comprehensive guide to the visual language and reusable components that make C
 2. **Depth Through Blur** - Background images are always blurred & zoomed for depth
 3. **Subtle Glow** - Accent colors glow softly, never harshly
 4. **Smooth Transitions** - Every state change is animated bidirectionally
-5. **Rose Pine Theme** - Dark, elegant, with rose/iris/foam accents
+5. **Rosé Pine Theme** - Dark, elegant, with rose/iris/foam accents
 
 ---
 
@@ -25,36 +25,42 @@ A comprehensive guide to the visual language and reusable components that make C
 .glass-strong       /* 95% opacity, 20px blur - important UI */
 
 /* Apple-style Liquid Glass (premium) */
-.liquid-glass           /* Gradient bg, 24px blur, inner glow */
-.liquid-glass-strong    /* 32px blur, prominent shadows - player bar */
-.liquid-glass-glow      /* Rose-tinted border glow - popups, panels */
+.liquid-glass-bar       /* Player bar - 28px blur, inner glow, gradient bg */
+.liquid-glass-sidebar   /* Sidebar - similar to bar, slightly more opaque */
+.liquid-glass-glow      /* Rose-tinted border glow - popups, context menus */
 
-.frosted-glass      /* Light frosted variant */
+.frosted-glass      /* Light frosted variant - 16px blur, minimal bg */
 ```
 
 ### Usage Examples
 
 ```tsx
-// Queue Panel (popup over content)
+// Queue Panel (popup over content, via portal)
 <div className="liquid-glass-glow rounded-2xl">
 
-// Player Bar (bottom bar, needs presence)
-<div className="liquid-glass-strong">
+// Player Bar (bottom bar, consistent with header)
+<div className="liquid-glass-bar">
 
-// Sidebar (subtle, doesn't compete)
-<aside className="bg-surface/80 backdrop-blur-md border-r border-white/5">
+// Sidebar (matching glass effect)
+<aside className="liquid-glass-sidebar">
 
-// Volume Popup
-<div className="liquid-glass rounded-2xl">
+// Volume Popup (via portal for glass effect)
+<div className="liquid-glass-glow rounded-2xl">
+
+// Context Menus (via portal)
+<div className="liquid-glass-glow rounded-2xl">
 ```
 
 ### Key Properties
 
 | Effect | Background | Blur | Border | Shadow |
 |--------|------------|------|--------|--------|
-| `liquid-glass` | Gradient rgba(31,29,46, 0.5-0.65) | 24px + saturate(180%) | rgba(255,255,255, 0.12) | Multi-layer with inner glow |
-| `liquid-glass-strong` | Gradient rgba(31,29,46, 0.65-0.8) | 32px + saturate(200%) | rgba(255,255,255, 0.15) | Heavy shadow + inner highlights |
-| `liquid-glass-glow` | Gradient rgba(31,29,46, 0.45-0.6) | 28px + saturate(180%) | rgba(235,188,186, 0.15) | Rose-tinted ambient glow |
+| `liquid-glass-bar` | Gradient rgba(31,29,46, 0.45-0.6) | 28px + saturate(180%) | Inner 1px white/6% | Inner highlight glow |
+| `liquid-glass-sidebar` | Gradient rgba(31,29,46, 0.5-0.65) | 28px + saturate(180%) | Inner 1px white/6% | Inner highlight glow |
+| `liquid-glass-glow` | Gradient rgba(31,29,46, 0.45-0.6) | 28px + saturate(180%) | 1px rgba(235,188,186, 0.15) | Rose-tinted ambient glow + 8px shadow |
+| `frosted-glass` | rgba(255,255,255, 0.03) | 16px + saturate(150%) | 1px white/8% | 4px shadow + inner glow |
+
+**Note:** All liquid-glass utilities include inner box-shadow highlights for that "frosted glass" refraction effect.
 
 ---
 
@@ -127,7 +133,7 @@ This creates the effect where the blurred image **naturally fades** into the UI 
 
 ## 🎨 Color System
 
-### Rose Pine Theme
+### Rosé Pine Theme
 
 | Token | Hex | Usage |
 |-------|-----|-------|
@@ -151,6 +157,47 @@ This creates the effect where the blurred image **naturally fades** into the UI 
 - **Success/Info**: `foam` - confirmations, queue added
 - **Error/Danger**: `love` - errors, delete actions
 - **Links**: `pine` - clickable text
+
+---
+
+## 🖱️ Cursors & Selection
+
+Using [rose-pine/cursor](https://github.com/rose-pine/cursor) **BreezeX-RoséPine** (Dark theme).
+
+### Custom Cursors
+
+Cursor PNG files are in `/public/cursors/`:
+
+| Cursor | File | Elements |
+|--------|------|----------|
+| **Default** | `default.png` | `html` (entire app) |
+| **Pointer** | `pointer.png` | `a`, `button`, `[role="button"]`, `.cursor-pointer` |
+| **Link** | `link.png` | `a[href]`, `.cursor-link` |
+| **Text** | `text.png` | `input`, `textarea`, `[contenteditable]` |
+| **Grab** | `grab.png` | `.cursor-grab` |
+| **Not-allowed** | `not-allowed.png` | `:disabled`, `[disabled]` |
+
+### Selection Colors
+
+```css
+::selection {
+  background-color: rgba(235, 188, 186, 0.35);  /* rose/35% */
+  color: var(--color-text);
+}
+```
+
+### Focus & Accent Colors
+
+```css
+/* Focus ring */
+input:focus { outline: 2px solid var(--color-iris); }
+
+/* Checkbox/Radio/Range accent */
+input[type="checkbox"]:checked { accent-color: var(--color-rose); }
+
+/* Search highlight */
+mark, .highlight { background-color: rgba(246, 193, 119, 0.3); }  /* gold/30% */
+```
 
 ---
 
@@ -199,8 +246,12 @@ className={cn(
 | `animate-fade-in` | 200ms | Opacity 0→1 |
 | `animate-slide-up` | 300ms | Fade + translateY(10px→0) |
 | `animate-scale-in` | 200ms | Scale 0→1 with fade |
-| `animate-breathe` | 25s | Slow organic float |
+| `animate-slide-in-right` | 200ms | Slide from right (panels) |
+| `animate-breathe` | 25s | Slow organic float (background blobs) |
 | `animate-blob` | 12s | Faster blob movement |
+| `animate-equalizer` | 2.2s | Audio bars animation |
+| `animate-pulse-subtle` | 2s | Gentle pulsing opacity |
+| `animate-spin` | 1s | Continuous rotation (loaders) |
 
 ### Animation Delays
 
@@ -304,18 +355,66 @@ box-shadow:
 
 ## 📱 Component Quick Reference
 
-| Component | Glass Style | Accent |
-|-----------|-------------|--------|
-| Player Bar | `liquid-glass-strong` | - |
-| Queue Panel | `liquid-glass-glow` | Rose border |
-| Volume Popup | `liquid-glass` | - |
-| Sidebar | `bg-surface/80 backdrop-blur-md` | - |
-| Artist Header | `ImageBackdrop` | Iris glow |
-| Album Header | `ImageBackdrop` | Rose glow |
-| Modals | `glass-strong` | - |
-| Tooltips | `glass` | - |
+| Component | Glass Style | Notes |
+|-----------|-------------|-------|
+| Player Bar | `liquid-glass-bar` | Matches header styling |
+| Queue Panel | `liquid-glass-glow` | Rose border, via portal |
+| Volume Popup | `liquid-glass-glow` | Via portal for glass effect |
+| Context Menus | `liquid-glass-glow` | Via portal, rose border |
+| Sidebar | `liquid-glass-sidebar` | Slightly more opaque |
+| Artist Header | `ImageBackdrop` | Iris glow accent |
+| Album Header | `ImageBackdrop` | Rose glow accent |
+| Modals | `liquid-glass-glow` | Via portal |
+| Create Playlist | `liquid-glass-glow` | Via portal |
+
+### Shared UI Components
+
+| Component | Props | Notes |
+|-----------|-------|-------|
+| `HeartButton` | `isFavorite`, `onClick`, `size`, `showOnGroupHover` | Animated heart toggle |
+| `AddToQueueButton` | `onClick`, `size`, `disabled`, `showOnGroupHover` | Check animation on add |
+| `EmptyState` | `icon`, `title`, `description`, `action` | Consistent empty list/grid states |
+| `PlayingIndicator` | `size` | Animated equalizer bars |
+| `TrackRow` | `track`, handlers, `showMeta` | Generic track row for library/history |
+
+### Shared Layout Components
+
+| Component | Props | Notes |
+|-----------|-------|-------|
+| `CollectionHeader` | `title`, `cover`, playback handlers, etc. | Album/Playlist/Liked headers |
+| `TrackList` | `tracks`, `onTrackPlay`, etc. | Album track list (numbered rows) |
+| `PlaylistTrackList` | `tracks`, `onTrackPlay`, etc. | Playlist track list (cover art, date) |
 
 ---
+
+## 🌀 Portal Rendering
+
+**Critical for Glass Effects:** CSS `backdrop-filter` does not work when nested inside another element that already has `backdrop-filter` applied. This breaks the glass effect on popups, context menus, and volume controls.
+
+### Solution: React Portals
+
+All glass popups must render via `createPortal` to `document.body`:
+
+```tsx
+import { createPortal } from 'react-dom';
+
+// Volume popup, context menus, modals
+{isOpen && createPortal(
+  <div className="fixed z-[9999] liquid-glass-glow rounded-2xl">
+    {/* Content */}
+  </div>,
+  document.body
+)}
+```
+
+### Components Using Portals
+- `VolumeControl` (collapsed popup)
+- `TrackContextMenu`
+- `AlbumContextMenu`
+- `ArtistContextMenu`
+- `PlaylistPicker` (submenu)
+- `CreatePlaylistModal`
+- `QueuePanel`
 
 ---
 
@@ -357,6 +456,21 @@ Images (especially vertical ones) should **crop** to fit, not stretch:
 
 ---
 
+## 🎵 Playing Indicator
+
+The animated equalizer bars show which track is currently playing:
+
+```tsx
+import { PlayingIndicator } from '@/components/ui';
+
+// On track covers - shows when this track is playing
+<PlayingIndicator isPlaying={isCurrentTrack && isPlaying} />
+```
+
+Uses `animate-equalizer` with staggered delays for organic movement.
+
+---
+
 ## 🚀 Quick Tips
 
 1. **Always use `relative` + `z-10`** when placing content over ImageBackdrop
@@ -366,6 +480,8 @@ Images (especially vertical ones) should **crop** to fit, not stretch:
 5. **Use `transition-all duration-200`** as default, `duration-300` for panels
 6. **Include `aria-hidden="true"`** on decorative backdrop elements
 7. **Always use `object-cover object-center`** on images to crop, never stretch
+8. **Render popups via portal** to ensure backdrop-filter works correctly
+9. **Use `z-[9999]`** for portaled popups to stay above all content
 
 ---
 

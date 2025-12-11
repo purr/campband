@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ============================================
-   ROSE PINE THEME
+   Rosé Pine THEME
    https://rosepinetheme.com/
    ============================================ */
 
@@ -63,6 +63,81 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+/* ============================================
+   ROSÉ PINE SELECTION & CURSORS
+   Based on: https://github.com/rose-pine/cursor
+   Using BreezeX-RoséPine (Dark) theme cursors
+   ============================================ */
+
+/* Text Selection - rose accent */
+::selection {
+  background-color: rgba(235, 188, 186, 0.35);
+  color: var(--color-text);
+}
+
+::-moz-selection {
+  background-color: rgba(235, 188, 186, 0.35);
+  color: var(--color-text);
+}
+
+/* Custom Cursors - Rose Pine Dark (BreezeX-RoséPine) */
+/* Default cursor */
+html {
+  cursor: url("/cursors/default.png"), auto;
+}
+
+/* Pointer cursor for clickable elements */
+a, button, [role="button"], [type="button"], [type="submit"],
+label[for], summary, .cursor-pointer {
+  cursor: url("/cursors/pointer.png"), pointer;
+}
+
+/* Text cursor */
+input[type="text"], input[type="search"], input[type="email"], input[type="password"],
+input[type="number"], input[type="url"], input[type="tel"], textarea,
+[contenteditable="true"], .cursor-text {
+  cursor: url("/cursors/text.png") 12 12, text;
+}
+
+/* Grab cursor */
+.cursor-grab {
+  cursor: url("/cursors/grab.png") 12 12, grab;
+}
+
+/* Link cursor */
+a[href], .cursor-link {
+  cursor: url("/cursors/link.png"), pointer;
+}
+
+/* Not-allowed cursor */
+.cursor-not-allowed, :disabled, [disabled] {
+  cursor: url("/cursors/not-allowed.png") 12 12, not-allowed;
+}
+
+/* Input focus rings - rose-pine colors */
+input:focus, textarea:focus, select:focus,
+[contenteditable="true"]:focus {
+  outline: 2px solid var(--color-iris);
+  outline-offset: 2px;
+}
+
+/* Checkbox/Radio custom colors */
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  accent-color: var(--color-rose);
+}
+
+/* Range/slider accent */
+input[type="range"] {
+  accent-color: var(--color-rose);
+}
+
+/* Highlight for search results, etc */
+mark, .highlight {
+  background-color: rgba(246, 193, 119, 0.3);
+  color: inherit;
 }
 
 /* ============================================

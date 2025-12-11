@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
 import { Heart, ListPlus, Play, Plus, ChevronRight, Music } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { usePlaylistStore, useQueueStore, useLibraryStore, usePlayerStore } from '@/lib/store';
+import { cn, toPlayableTrack } from '@/lib/utils';
+import { usePlaylistStore, useQueueStore, useLibraryStore } from '@/lib/store';
 import { buildArtUrl, ImageSizes, type Track } from '@/types';
 import type { FavoriteTrack } from '@/lib/db';
 
@@ -148,27 +148,6 @@ function TrackContextMenu({ track, position, onClose }: TrackContextMenuProps) {
   }, [position.x]);
 
   const isLiked = isFavoriteTrack(track.id);
-
-  // Convert to playable track format
-  const toPlayableTrack = (t: Track | FavoriteTrack) => ({
-    id: t.id,
-    trackId: t.id,
-    title: t.title,
-    artist: 'artist' in t ? t.artist : t.bandName,
-    albumTitle: t.albumTitle,
-    albumId: t.albumId,
-    albumUrl: t.albumUrl,
-    artId: t.artId,
-    bandId: 'bandId' in t ? t.bandId : 0,
-    bandName: t.bandName,
-    bandUrl: t.bandUrl,
-    duration: t.duration,
-    streamUrl: t.streamUrl,
-    trackNum: 1,
-    hasLyrics: false,
-    streaming: true,
-    isDownloadable: false,
-  });
 
   const handlePlayNext = () => {
     if (track.streamUrl) {

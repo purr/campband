@@ -30,7 +30,25 @@ const DELAYS = {
 // Fetch Helpers
 // ============================================
 
+/**
+ * Result of fetching HTML with redirect tracking
+ */
+interface FetchHtmlResult {
+  html: string;
+  finalUrl: string;
+  wasRedirected: boolean;
+}
+
 async function fetchHtml(url: string): Promise<string> {
+  const result = await fetchHtmlWithRedirect(url);
+  return result.html;
+}
+
+/**
+ * Fetch HTML and track redirects (useful for detecting single-track artists)
+ * Browser fetch follows redirects automatically, but we can detect them via response.url
+ */
+async function fetchHtmlWithRedirect(url: string): Promise<FetchHtmlResult> {
   console.log('[Scraper] Fetching:', url);
 
   const response = await fetch(url);
@@ -39,7 +57,19 @@ async function fetchHtml(url: string): Promise<string> {
     throw new Error(`Failed to fetch ${url}: ${response.status}`);
   }
 
-  return response.text();
+  const html = await response.text();
+  const finalUrl = response.url;
+
+  // Compare normalized paths to detect redirect (ignore trailing slash, case, etc.)
+  const requestedPath = new URL(url).pathname.replace(/\/$/, '').toLowerCase();
+  const finalPath = new URL(finalUrl).pathname.replace(/\/$/, '').toLowerCase();
+  const wasRedirected = requestedPath !== finalPath;
+
+  if (wasRedirected) {
+    console.log('[Scraper] Redirected from', requestedPath, 'to', finalPath);
+  }
+
+  return { html, finalUrl, wasRedirected };
 }
 
 function parseHtml(html: string): Document {
@@ -141,10 +171,80 @@ export async function searchBandcamp(query: string): Promise<SearchResults> {
 // Artist Page
 // ============================================
 
+/**
+ * Result type for artist page fetching
+ * Can return either the artist page (discography) OR a single release if the artist only has one
+ */
+export type ArtistPageResult =
+  | { type: 'artist'; data: ArtistPage }
+  | { type: 'singleRelease'; data: Album; releaseType: 'album' | 'track' };
+
 export async function fetchArtistPage(artistUrl: string): Promise<ArtistPage> {
-  // Ensure URL ends with /music
+  const result = await fetchArtistPageWithRedirect(artistUrl);
+
+  if (result.type === 'singleRelease') {
+    // Convert single release to an ArtistPage format
+    // This happens when artist has only one track/album and /music redirects to it
+    const album = result.data;
+
+    const band: Band = {
+      id: album.bandId,
+      name: album.artist,
+      subdomain: new URL(album.bandUrl || artistUrl).hostname.replace('.bandcamp.com', ''),
+      url: album.bandUrl || artistUrl,
+    };
+
+    const releases: DiscographyItem[] = [{
+      itemType: result.releaseType,
+      itemId: album.id,
+      bandId: album.bandId,
+      url: album.url,
+      relativeUrl: album.url.replace(band.url, ''),
+      title: album.title,
+      artUrl: album.artId ? buildArtUrl(album.artId, ImageSizes.MEDIUM_700) : '',
+      artId: album.artId?.toString(),
+    }];
+
+    return {
+      band,
+      releases,
+      totalReleases: 1,
+      discographyRealSize: 1,
+    };
+  }
+
+  return result.data;
+}
+
+/**
+ * Fetch artist page with redirect detection
+ * If /music redirects to a track/album, the artist only has one release
+ */
+export async function fetchArtistPageWithRedirect(artistUrl: string): Promise<ArtistPageResult> {
+  // Ensure URL ends with /music - this is critical!
+  // The root URL (/) may redirect to latest release, but /music only redirects for single-release artists
   const url = artistUrl.replace(/\/?$/, '/music');
-  const html = await fetchHtml(url);
+  console.log('[Scraper] Fetching artist /music page:', url);
+
+  const { html, finalUrl, wasRedirected } = await fetchHtmlWithRedirect(url);
+
+  // Check if we were redirected to a single release
+  // Bandcamp redirects /music to /track/... or /album/... ONLY if artist has just one release
+  if (wasRedirected) {
+    const urlObj = new URL(finalUrl);
+    const pathParts = urlObj.pathname.split('/').filter(Boolean);
+    console.log('[Scraper] /music redirected! Path parts:', pathParts);
+
+    if (pathParts[0] === 'track' || pathParts[0] === 'album') {
+      console.log('[Scraper] Single-release artist detected:', finalUrl);
+      const releaseType = pathParts[0] as 'album' | 'track';
+      const release = await fetchReleasePage(finalUrl);
+      return { type: 'singleRelease', data: release, releaseType };
+    }
+  } else {
+    console.log('[Scraper] /music did not redirect - normal artist with multiple releases');
+  }
+
   const doc = parseHtml(html);
 
   // Get band data from data-band attribute
@@ -284,11 +384,16 @@ export async function fetchArtistPage(artistUrl: string): Promise<ArtistPage> {
     }
   }
 
+  console.log('[Scraper] Parsed', releases.length, 'releases for', band.name, '(real size:', discographyRealSize, ')');
+
   return {
-    band,
-    releases,
-    totalReleases: releases.length,
-    discographyRealSize,
+    type: 'artist' as const,
+    data: {
+      band,
+      releases,
+      totalReleases: releases.length,
+      discographyRealSize,
+    },
   };
 }
 

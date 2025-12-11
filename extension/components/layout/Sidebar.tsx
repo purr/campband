@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Home, Search, Plus, Settings, ListMusic, Music, Disc3 } from 'lucide-react';
+import { Home, Search, Plus, Settings, Music, Disc3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore, useRouterStore, useSearchStore, usePlaylistStore, useLibraryStore } from '@/lib/store';
 import { buildArtUrl, ImageSizes } from '@/types';
 import { LikedCover, FollowingCover, PlaylistCover } from '@/components/shared';
+import { useContextMenu } from '@/components/ui';
 import { LAYOUT_CLASSES } from '@/lib/constants/layout';
 
 interface NavItem {
@@ -24,21 +25,18 @@ export function Sidebar() {
   const [showBottomShadow, setShowBottomShadow] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Context menu hook
+  const { openAlbumMenu, openPlaylistMenu, openLikedSongsMenu } = useContextMenu();
+
   // Initialize stores
   useEffect(() => {
     initPlaylists();
     initLibrary();
   }, [initPlaylists, initLibrary]);
 
-// Track if sidebar was auto-collapsed (vs manually collapsed)
-  const wasAutoCollapsed = useRef(false);
-  const collapsedRef = useRef(sidebarCollapsed);
+// Track if the LAST collapse was automatic (for auto-expand on widen)
+  const lastCollapseWasAuto = useRef(false);
   const { setSidebarCollapsed } = useUIStore();
-
-  // Keep ref in sync with state
-  useEffect(() => {
-    collapsedRef.current = sidebarCollapsed;
-  }, [sidebarCollapsed]);
 
   // Handle responsive sidebar - auto-collapse/expand based on screen width
   useEffect(() => {
@@ -46,30 +44,30 @@ export function Sidebar() {
 
     const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
       if (e.matches) {
-        // Screen became narrow - only auto-collapse if not already collapsed
-        if (!collapsedRef.current) {
-          wasAutoCollapsed.current = true;
+        // Screen became narrow - always collapse if expanded
+        if (!sidebarCollapsed) {
+          lastCollapseWasAuto.current = true;
           setSidebarCollapsed(true);
         }
-        // If already collapsed (manually), don't mark as auto-collapsed
-      } else if (wasAutoCollapsed.current) {
-        // Screen became wide AND it was auto-collapsed - auto-expand
-        wasAutoCollapsed.current = false;
-        setSidebarCollapsed(false);
+      } else {
+        // Screen became wide - only auto-expand if last collapse was automatic
+        if (sidebarCollapsed && lastCollapseWasAuto.current) {
+          lastCollapseWasAuto.current = false;
+          setSidebarCollapsed(false);
+        }
       }
-      // If screen became wide but user manually collapsed, don't auto-expand
     };
 
-    // Check initial state - only auto-collapse if not already collapsed
-    if (mediaQuery.matches && !collapsedRef.current) {
-      wasAutoCollapsed.current = true;
+    // Check initial state
+    if (mediaQuery.matches && !sidebarCollapsed) {
+      lastCollapseWasAuto.current = true;
       setSidebarCollapsed(true);
     }
 
     // Listen for changes
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [setSidebarCollapsed]);
+  }, [sidebarCollapsed, setSidebarCollapsed]);
 
   // Handle scroll shadows
   useEffect(() => {
@@ -149,14 +147,14 @@ export function Sidebar() {
       )}>
         <button
           onClick={() => {
-            // User manually toggled - reset auto-collapse tracking
-            wasAutoCollapsed.current = false;
+            // User manually toggled - mark as manual action
+            lastCollapseWasAuto.current = false;
             toggleSidebar();
           }}
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="w-9 h-9 rounded-xl bg-rose flex items-center justify-center flex-shrink-0 hover:bg-rose/90 active:scale-95 transition-all"
+          className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-love/20"
         >
-          <ListMusic size={18} className="text-base" />
+          <img src="/icon/icon.svg" alt="CampBand" className="w-full h-full" />
         </button>
         <span
           className={cn(
@@ -222,6 +220,7 @@ export function Sidebar() {
             isActive={isRouteActive('liked')}
             isCollapsed={sidebarCollapsed}
             onClick={() => handleNavigation('liked')}
+            onContextMenu={openLikedSongsMenu}
           />
 
           {/* Divider */}
@@ -246,9 +245,15 @@ export function Sidebar() {
             )}>
               <Plus size={sidebarCollapsed ? 16 : 20} className="text-text/60" />
             </div>
-            {!sidebarCollapsed && (
-              <span className="font-medium text-sm whitespace-nowrap">Create Playlist</span>
-            )}
+            <span
+              className={cn(
+                'font-medium text-sm whitespace-nowrap overflow-hidden',
+                'transition-all duration-300 ease-out',
+                sidebarCollapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'
+              )}
+            >
+              Create Playlist
+            </span>
           </button>
 
           {/* User Playlists */}
@@ -262,6 +267,7 @@ export function Sidebar() {
               isActive={isPlaylistActive(playlist.id!)}
               isCollapsed={sidebarCollapsed}
               onClick={() => handlePlaylistClick(playlist.id!)}
+              onContextMenu={(e) => openPlaylistMenu(e, playlist)}
             />
           ))}
 
@@ -281,6 +287,15 @@ export function Sidebar() {
               isActive={isAlbumActive(album.url)}
               isCollapsed={sidebarCollapsed}
               onClick={() => handleAlbumClick(album.url)}
+              onContextMenu={(e) => openAlbumMenu(e, {
+                id: album.id,
+                title: album.title,
+                artist: album.artist,
+                url: album.url,
+                artId: album.artId,
+                bandId: album.bandId,
+                bandUrl: album.bandUrl,
+              })}
             />
           ))}
         </div>
@@ -308,6 +323,7 @@ export function Sidebar() {
           onClick={() => handleNavigation('settings')}
         />
       </div>
+
     </aside>
   );
 }
@@ -364,6 +380,7 @@ interface CollectionItemProps {
   isActive: boolean;
   isCollapsed: boolean;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 function CollectionItem({
@@ -378,6 +395,7 @@ function CollectionItem({
   isActive,
   isCollapsed,
   onClick,
+  onContextMenu,
 }: CollectionItemProps) {
   const renderCover = () => {
     // Custom cover (like Liked Songs)
@@ -432,6 +450,7 @@ function CollectionItem({
   return (
         <button
       onClick={onClick}
+      onContextMenu={onContextMenu}
           className={cn(
         'w-full flex items-center gap-3 px-2 py-1.5 rounded-lg',
             'text-text/70 hover:text-text hover:bg-white/5',
@@ -453,25 +472,29 @@ function CollectionItem({
         <TypeBadge />
       </div>
 
-      {/* Name and metadata */}
-      {!isCollapsed && (
-        <div className="flex-1 min-w-0 text-left">
-          <span className="font-medium text-sm truncate block">{name}</span>
-          {/* Subtitle */}
-          {type === 'following' && trackCount !== undefined && (
-            <p className="text-xs text-text/60">{trackCount} artists</p>
-          )}
-          {type === 'liked' && trackCount !== undefined && (
-            <p className="text-xs text-text/60">{trackCount} songs</p>
-          )}
-          {type === 'album' && artist && (
-            <p className="text-xs text-text/60 truncate">{artist}</p>
-          )}
-          {type === 'playlist' && (
-            <p className="text-xs text-text/60">Playlist</p>
-          )}
-        </div>
-      )}
+      {/* Name and metadata - always render, animate opacity */}
+      <div
+        className={cn(
+          'flex-1 min-w-0 text-left overflow-hidden',
+          'transition-all duration-300 ease-out',
+          isCollapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'
+        )}
+      >
+        <span className="font-medium text-sm truncate block whitespace-nowrap">{name}</span>
+        {/* Subtitle */}
+        {type === 'following' && trackCount !== undefined && (
+          <p className="text-xs text-text/60 whitespace-nowrap">{trackCount} artists</p>
+        )}
+        {type === 'liked' && trackCount !== undefined && (
+          <p className="text-xs text-text/60 whitespace-nowrap">{trackCount} songs</p>
+        )}
+        {type === 'album' && artist && (
+          <p className="text-xs text-text/60 truncate whitespace-nowrap">{artist}</p>
+        )}
+        {type === 'playlist' && (
+          <p className="text-xs text-text/60 whitespace-nowrap">Playlist</p>
+        )}
+      </div>
     </button>
   );
 }

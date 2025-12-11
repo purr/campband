@@ -21,6 +21,14 @@ export interface PendingTrackForPlaylist {
   bandUrl?: string;
 }
 
+// Playlist data for editing
+export interface EditingPlaylist {
+  id: number;
+  name: string;
+  description?: string;
+  coverImage?: string;
+}
+
 interface UIState {
   // Sidebar
   sidebarCollapsed: boolean;
@@ -44,10 +52,17 @@ interface UIState {
   setQueuePanelOpen: (open: boolean) => void;
   toggleQueuePanel: () => void;
 
-  // Modals
-  createPlaylistModalOpen: boolean;
+  // Playlist Modal (create or edit)
+  playlistModalOpen: boolean;
+  playlistModalMode: 'create' | 'edit';
   pendingTrackForPlaylist: PendingTrackForPlaylist | null;
+  editingPlaylist: EditingPlaylist | null;
   openCreatePlaylistModal: (track?: PendingTrackForPlaylist) => void;
+  openEditPlaylistModal: (playlist: EditingPlaylist) => void;
+  closePlaylistModal: () => void;
+
+  // Legacy alias
+  createPlaylistModalOpen: boolean;
   closeCreatePlaylistModal: () => void;
 
   // View mode preferences per section
@@ -84,16 +99,35 @@ export const useUIStore = create<UIState>()(
       setQueuePanelOpen: (open) => set({ queuePanelOpen: open }),
       toggleQueuePanel: () => set((state) => ({ queuePanelOpen: !state.queuePanelOpen })),
 
-      // Modals
-      createPlaylistModalOpen: false,
+      // Playlist Modal (create or edit)
+      playlistModalOpen: false,
+      playlistModalMode: 'create',
       pendingTrackForPlaylist: null,
+      editingPlaylist: null,
       openCreatePlaylistModal: (track) => set({
-        createPlaylistModalOpen: true,
-        pendingTrackForPlaylist: track || null
+        playlistModalOpen: true,
+        playlistModalMode: 'create',
+        pendingTrackForPlaylist: track || null,
+        editingPlaylist: null,
       }),
+      openEditPlaylistModal: (playlist) => set({
+        playlistModalOpen: true,
+        playlistModalMode: 'edit',
+        editingPlaylist: playlist,
+        pendingTrackForPlaylist: null,
+      }),
+      closePlaylistModal: () => set({
+        playlistModalOpen: false,
+        pendingTrackForPlaylist: null,
+        editingPlaylist: null,
+      }),
+
+      // Legacy alias (points to same state)
+      createPlaylistModalOpen: false,
       closeCreatePlaylistModal: () => set({
-        createPlaylistModalOpen: false,
-        pendingTrackForPlaylist: null
+        playlistModalOpen: false,
+        pendingTrackForPlaylist: null,
+        editingPlaylist: null,
       }),
 
       // View mode preferences per section

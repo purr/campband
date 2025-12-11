@@ -8,7 +8,7 @@ interface LikedCoverProps {
 
 /**
  * Special cover art for the "Liked" playlist.
- * Features a beautiful animated heart design with our Rose Pine theme.
+ * Features a beautiful animated heart design with our Rosé Pine theme.
  */
 export function LikedCover({ size = 'large', className }: LikedCoverProps) {
   const sizeClasses = {

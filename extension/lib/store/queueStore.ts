@@ -3,6 +3,13 @@ import { persist } from 'zustand/middleware';
 import type { Track } from '@/types';
 import { usePlayerStore } from './playerStore';
 import { audioEngine } from '@/lib/audio';
+import type { Route } from './routerStore';
+
+// Lazy getter for router store to avoid circular dependency
+let getRouterStore: (() => { currentRoute: Route }) | null = null;
+export function setRouterStoreGetter(getter: () => { currentRoute: Route }) {
+  getRouterStore = getter;
+}
 
 interface QueueState {
   // Queue
@@ -16,8 +23,11 @@ interface QueueState {
   // Original queue (for unshuffle)
   originalQueue: Track[];
 
+  // Where playback started from (for "click album cover to go back" feature)
+  playbackSourceRoute: Route | null;
+
   // Actions
-  setQueue: (tracks: Track[], startIndex?: number) => void;
+  setQueue: (tracks: Track[], startIndex?: number, sourceRoute?: Route) => void;
   addToQueue: (track: Track) => void;
   addMultipleToQueue: (tracks: Track[]) => void;
   insertNext: (track: Track) => void;
@@ -41,6 +51,7 @@ interface QueueState {
   hasNext: () => boolean;
   hasPrevious: () => boolean;
   getCurrentTrack: () => Track | null;
+  getPlaybackSourceRoute: () => Route | null;
 }
 
 export const useQueueStore = create<QueueState>()(
@@ -51,14 +62,23 @@ export const useQueueStore = create<QueueState>()(
   shuffle: false,
   history: [],
   originalQueue: [],
+  playbackSourceRoute: null,
 
-  setQueue: (tracks, startIndex = 0) => {
+  setQueue: (tracks, startIndex = 0, sourceRoute) => {
     const queue = [...tracks];
+
+    // Get current route if no source provided
+    let routeToStore = sourceRoute;
+    if (routeToStore === undefined && getRouterStore) {
+      routeToStore = getRouterStore().currentRoute;
+    }
+
     set({
       queue,
       originalQueue: [...tracks],
       currentIndex: startIndex,
       history: [],
+      playbackSourceRoute: routeToStore ?? null,
     });
 
     // Update player's current track
@@ -283,6 +303,10 @@ export const useQueueStore = create<QueueState>()(
     const state = get();
     return state.queue[state.currentIndex] || null;
   },
+
+  getPlaybackSourceRoute: () => {
+    return get().playbackSourceRoute;
+  },
 }),
     {
       name: 'campband-queue',
@@ -291,6 +315,7 @@ export const useQueueStore = create<QueueState>()(
         currentIndex: state.currentIndex,
         shuffle: state.shuffle,
         originalQueue: state.originalQueue,
+        playbackSourceRoute: state.playbackSourceRoute,
       }),
     }
   )

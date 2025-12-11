@@ -7,18 +7,16 @@ interface NavigationButtonsProps {
 }
 
 export function NavigationButtons({ className }: NavigationButtonsProps) {
-  const { goBack, goForward, canGoBack, canGoForward } = useRouterStore();
+  const { goBack, goForward } = useRouterStore();
 
   return (
     <div className={cn('flex items-center gap-1', className)}>
       <button
         onClick={goBack}
-        disabled={!canGoBack()}
-        aria-label="Go back"
+        aria-label="Go back (uses browser history)"
         className={cn(
           'p-2 rounded-full transition-colors',
-          'hover:bg-highlight-low active:bg-highlight-med',
-          'disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+          'hover:bg-highlight-low active:bg-highlight-med'
         )}
       >
         <ChevronLeft size={20} />
@@ -26,12 +24,10 @@ export function NavigationButtons({ className }: NavigationButtonsProps) {
 
       <button
         onClick={goForward}
-        disabled={!canGoForward()}
-        aria-label="Go forward"
+        aria-label="Go forward (uses browser history)"
         className={cn(
           'p-2 rounded-full transition-colors',
-          'hover:bg-highlight-low active:bg-highlight-med',
-          'disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+          'hover:bg-highlight-low active:bg-highlight-med'
         )}
       >
         <ChevronRight size={20} />

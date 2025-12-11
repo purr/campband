@@ -6,6 +6,12 @@ interface HeartButtonProps {
   onClick: () => void;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  /**
+   * Show only on parent group hover (for track rows)
+   * When true, button is invisible until parent with 'group' class is hovered
+   * Exception: always visible when isFavorite is true
+   */
+  showOnGroupHover?: boolean;
 }
 
 const sizes = {
@@ -14,7 +20,13 @@ const sizes = {
   lg: 24,
 };
 
-export function HeartButton({ isFavorite, onClick, size = 'md', className }: HeartButtonProps) {
+export function HeartButton({
+  isFavorite,
+  onClick,
+  size = 'md',
+  className,
+  showOnGroupHover = false,
+}: HeartButtonProps) {
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -30,6 +42,9 @@ export function HeartButton({ isFavorite, onClick, size = 'md', className }: Hea
         'hover:bg-highlight-low active:scale-90',
         'focus-ring',
         isFavorite ? 'text-love' : 'text-muted hover:text-love',
+        // Group hover visibility
+        showOnGroupHover && 'opacity-0 group-hover:opacity-100',
+        showOnGroupHover && isFavorite && 'opacity-100',
         className
       )}
     >

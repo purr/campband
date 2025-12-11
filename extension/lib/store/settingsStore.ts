@@ -49,6 +49,7 @@ interface AppSettings {
   // Behavior
   showNotifications: boolean;
   confirmBeforeClearQueue: boolean;
+  confirmOnUnlike: boolean;
 }
 
 interface SettingsState {
@@ -70,6 +71,7 @@ interface SettingsState {
   setTheme: (theme: AppSettings['theme']) => void;
   setShowNotifications: (enabled: boolean) => void;
   setConfirmBeforeClearQueue: (enabled: boolean) => void;
+  setConfirmOnUnlike: (enabled: boolean) => void;
 
   // Reset
   resetAudioSettings: () => void;
@@ -77,7 +79,7 @@ interface SettingsState {
 }
 
 const defaultAudioSettings: AudioSettings = {
-  crossfadeEnabled: false,
+  crossfadeEnabled: true,
   crossfadeDuration: 4,
   volumeNormalization: false,
   gaplessPlayback: true,
@@ -91,6 +93,7 @@ const defaultAppSettings: AppSettings = {
   theme: 'dark',
   showNotifications: true,
   confirmBeforeClearQueue: false,
+  confirmOnUnlike: false,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -159,6 +162,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       setConfirmBeforeClearQueue: (enabled) =>
         set((state) => ({ app: { ...state.app, confirmBeforeClearQueue: enabled } })),
+
+      setConfirmOnUnlike: (enabled) =>
+        set((state) => ({ app: { ...state.app, confirmOnUnlike: enabled } })),
 
       // Reset
       resetAudioSettings: () => set({ audio: defaultAudioSettings }),

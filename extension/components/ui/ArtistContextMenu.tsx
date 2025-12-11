@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Heart, Link, Check, ExternalLink } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useLibraryStore } from '@/lib/store';
-import type { Band } from '@/types';
+import { Heart, Link, Check, ExternalLink, Play, ListPlus, ListEnd, Loader2 } from 'lucide-react';
+import { cn, registerContextMenu, unregisterContextMenu, notifyMenuClosed, notifyMenuOpening, scheduleCloseFromMousedown } from '@/lib/utils';
+import { useLibraryStore, useSettingsStore, useQueueStore, usePlayerStore, useArtistStore } from '@/lib/store';
+import { useUnlikeConfirm } from './ConfirmProvider';
+import type { Band, Track } from '@/types';
 
 interface ArtistContextMenuProps {
   /** Position of the menu */
@@ -22,8 +23,15 @@ interface ArtistContextMenuProps {
 
 export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMenuProps) {
   const { isFavoriteArtist, addFavoriteArtist, removeFavoriteArtist } = useLibraryStore();
+  const { setQueue, addMultipleToQueue, insertMultipleNext } = useQueueStore();
+  const { play } = usePlayerStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnfollowArtist } = useUnlikeConfirm();
   const [isVisible, setIsVisible] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [playingNext, setPlayingNext] = useState(false);
+  const [addedToQueue, setAddedToQueue] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const [adjustedPosition, setAdjustedPosition] = useState(position);
 
@@ -38,7 +46,7 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
     return () => cancelAnimationFrame(timer);
   }, []);
 
-  // Animated close
+  // Animated close - does NOT call notifyMenuClosed
   const handleClose = useCallback(() => {
     setIsVisible(false);
     setTimeout(() => {
@@ -46,11 +54,21 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
     }, 150);
   }, [onClose]);
 
+  // Register with coordinator and notify on unmount
+  useEffect(() => {
+    registerContextMenu('artist', handleClose);
+    return () => {
+      unregisterContextMenu('artist');
+      notifyMenuClosed('artist');
+    };
+  }, [handleClose]);
+
   // Close on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        handleClose();
+        // Use scheduled close so it can be cancelled if another menu opens
+        scheduleCloseFromMousedown('artist');
       }
     };
 
@@ -63,14 +81,12 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
     // Small delay to prevent immediate close
     const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('contextmenu', handleClickOutside);
     }, 10);
     document.addEventListener('keydown', handleEscape);
 
     return () => {
       clearTimeout(timer);
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('contextmenu', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [handleClose]);
@@ -112,9 +128,16 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
     }
   };
 
-  const handleToggleFollow = () => {
+  const handleToggleFollow = async () => {
     if (isFollowing) {
-      removeFavoriteArtist(artist.id);
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnfollowArtist(artist.name);
+        if (confirmed) {
+          removeFavoriteArtist(artist.id);
+        }
+      } else {
+        removeFavoriteArtist(artist.id);
+      }
     } else {
       addFavoriteArtist(artist as Band);
     }
@@ -123,6 +146,79 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
 
   const handleOpenInBandcamp = () => {
     window.open(artist.url, '_blank', 'noopener,noreferrer');
+    handleClose();
+  };
+
+  // Helper to load artist tracks (fetches releases and extracts streamable tracks)
+  const loadArtistTracks = async (): Promise<Track[]> => {
+    const { fetchArtistPage, fetchReleasePage } = await import('@/lib/api');
+
+    const artistPage = await fetchArtistPage(artist.url);
+    const allTracks: Track[] = [];
+
+    // Load first 5 releases to get tracks (don't want to wait too long)
+    const releasesToLoad = artistPage.releases.slice(0, 5);
+
+    for (const release of releasesToLoad) {
+      try {
+        const releaseData = await fetchReleasePage(release.url);
+        const streamable = releaseData.tracks.filter(t => t.streamUrl);
+        allTracks.push(...streamable);
+      } catch (e) {
+        console.error('[ArtistContextMenu] Failed to load release:', e);
+      }
+    }
+
+    return allTracks;
+  };
+
+  const handlePlay = async () => {
+    setIsLoading(true);
+    try {
+      const tracks = await loadArtistTracks();
+      if (tracks.length > 0) {
+        setQueue(tracks);
+        play();
+      }
+    } catch (e) {
+      console.error('[ArtistContextMenu] Failed to play:', e);
+    }
+    handleClose();
+  };
+
+  const handlePlayNext = async () => {
+    setIsLoading(true);
+    try {
+      const tracks = await loadArtistTracks();
+      if (tracks.length > 0) {
+        insertMultipleNext(tracks);
+        setPlayingNext(true);
+        setTimeout(() => {
+          handleClose();
+        }, 800);
+        return;
+      }
+    } catch (e) {
+      console.error('[ArtistContextMenu] Failed to play next:', e);
+    }
+    handleClose();
+  };
+
+  const handleAddToQueue = async () => {
+    setIsLoading(true);
+    try {
+      const tracks = await loadArtistTracks();
+      if (tracks.length > 0) {
+        addMultipleToQueue(tracks);
+        setAddedToQueue(true);
+        setTimeout(() => {
+          handleClose();
+        }, 800);
+        return;
+      }
+    } catch (e) {
+      console.error('[ArtistContextMenu] Failed to add to queue:', e);
+    }
     handleClose();
   };
 
@@ -157,6 +253,79 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
 
       {/* Menu Items */}
       <div className="px-1">
+        {/* Play */}
+        <button
+          onClick={handlePlay}
+          disabled={isLoading}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+            'text-sm text-left',
+            'text-text hover:bg-white/10',
+            'transition-colors duration-100',
+            isLoading && 'opacity-60'
+          )}
+        >
+          {isLoading ? (
+            <Loader2 size={16} className="text-text/60 animate-spin" />
+          ) : (
+            <Play size={16} className="text-text/60" />
+          )}
+          Play
+        </button>
+
+        {/* Play Next */}
+        <button
+          onClick={handlePlayNext}
+          disabled={isLoading}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+            'text-sm text-left',
+            'text-text hover:bg-white/10',
+            'transition-colors duration-100',
+            isLoading && 'opacity-60'
+          )}
+        >
+          {playingNext ? (
+            <>
+              <Check size={16} className="text-foam" />
+              <span className="text-foam">Playing next!</span>
+            </>
+          ) : (
+            <>
+              <ListPlus size={16} className="text-text/60" />
+              Play Next
+            </>
+          )}
+        </button>
+
+        {/* Add to Queue */}
+        <button
+          onClick={handleAddToQueue}
+          disabled={isLoading}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+            'text-sm text-left',
+            'text-text hover:bg-white/10',
+            'transition-colors duration-100',
+            isLoading && 'opacity-60'
+          )}
+        >
+          {addedToQueue ? (
+            <>
+              <Check size={16} className="text-foam" />
+              <span className="text-foam">Added!</span>
+            </>
+          ) : (
+            <>
+              <ListEnd size={16} className="text-text/60" />
+              Add to Queue
+            </>
+          )}
+        </button>
+
+        {/* Divider */}
+        <div className="my-1 border-t border-white/5" />
+
         {/* Follow / Unfollow */}
         <button
           onClick={handleToggleFollow}
@@ -213,6 +382,7 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
           Open in Bandcamp
         </button>
       </div>
+
     </div>,
     document.body
   );
@@ -235,12 +405,16 @@ export function useArtistContextMenu() {
     artist: null,
   });
 
-  const openMenu = useCallback((
+  const openMenu = useCallback(async (
     e: React.MouseEvent,
     artist: ArtistContextMenuProps['artist']
   ) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // Notify coordinator - this will close any other open menu first
+    await notifyMenuOpening('artist');
+
     setState({
       isOpen: true,
       position: { x: e.clientX, y: e.clientY },

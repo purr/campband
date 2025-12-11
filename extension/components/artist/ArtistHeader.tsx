@@ -1,7 +1,7 @@
 import { MapPin, ExternalLink, Shuffle, Play, Heart } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button, Skeleton, ImageBackdrop } from '@/components/ui';
-import { useLibraryStore } from '@/lib/store';
+import { Button, Skeleton, ImageBackdrop, useUnlikeConfirm } from '@/components/ui';
+import { useLibraryStore, useSettingsStore } from '@/lib/store';
 import type { Band, DiscographyItem } from '@/types';
 import { buildBioUrl, getArtworkUrl, ImageSizes } from '@/types';
 
@@ -15,11 +15,20 @@ interface ArtistHeaderProps {
 
 export function ArtistHeader({ band, releases, isLoading, onPlayAll, onShuffleAll }: ArtistHeaderProps) {
   const { isFavoriteArtist, addFavoriteArtist, removeFavoriteArtist } = useLibraryStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnfollowArtist } = useUnlikeConfirm();
   const isFavorite = isFavoriteArtist(band.id);
 
-  const handleFavoriteClick = () => {
+  const handleFavoriteClick = async () => {
     if (isFavorite) {
-      removeFavoriteArtist(band.id);
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnfollowArtist(band.name);
+        if (confirmed) {
+          removeFavoriteArtist(band.id);
+        }
+      } else {
+        removeFavoriteArtist(band.id);
+      }
     } else {
       addFavoriteArtist(band);
     }

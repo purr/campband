@@ -1,9 +1,10 @@
-import { Play, Heart, ListPlus, Check, Music } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Play, Music } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatTime, formatSmartDate, formatPlayCount } from '@/lib/utils';
+import { formatTime, formatSmartDate } from '@/lib/utils';
 import { buildArtUrl, ImageSizes } from '@/types';
 import { useContextMenu } from './ContextMenu';
+import { HeartButton } from './HeartButton';
+import { AddToQueueButton } from './AddToQueueButton';
 
 interface TrackRowProps {
   track: {
@@ -53,14 +54,7 @@ export function TrackRow({
   playCount,
   showMeta = 'none',
 }: TrackRowProps) {
-  const [showQueueCheck, setShowQueueCheck] = useState(false);
   const { openMenu } = useContextMenu();
-
-  const handleAddToQueue = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onAddToQueue?.();
-    setShowQueueCheck(true);
-  };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     // Create a track object that includes all necessary fields
@@ -70,13 +64,6 @@ export function TrackRow({
     };
     openMenu(trackData as any, e);
   };
-
-  useEffect(() => {
-    if (showQueueCheck) {
-      const timer = setTimeout(() => setShowQueueCheck(false), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [showQueueCheck]);
 
   const canPlay = !!track.streamUrl;
 
@@ -193,42 +180,25 @@ export function TrackRow({
         </span>
 
         {/* Action buttons - fixed width container */}
-        <div className="flex items-center gap-1 w-16 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 w-16 justify-end">
         {/* Like button */}
         {showLikeButton && onLike && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onLike();
-            }}
-            className={cn(
-              'p-1.5 rounded-full transition-all duration-200',
-              'hover:bg-highlight-low active:scale-90',
-              isLiked ? 'text-love opacity-100' : 'text-muted hover:text-love'
-            )}
-            aria-label={isLiked ? 'Remove from favorites' : 'Add to favorites'}
-          >
-            <Heart size={16} fill={isLiked ? 'currentColor' : 'none'} />
-          </button>
+            <HeartButton
+              isFavorite={isLiked}
+              onClick={onLike}
+              size="sm"
+              showOnGroupHover
+            />
         )}
 
         {/* Add to queue button */}
-        {showQueueButton && onAddToQueue && canPlay && (
-          <button
-            onClick={handleAddToQueue}
-            className={cn(
-              'p-1.5 rounded-full transition-all duration-200',
-              'hover:bg-highlight-low active:scale-90',
-              showQueueCheck ? 'text-foam opacity-100' : 'text-muted hover:text-text'
-            )}
-            aria-label="Add to queue"
-          >
-            {showQueueCheck ? (
-              <Check size={16} className="animate-scale-in" />
-            ) : (
-              <ListPlus size={16} />
-            )}
-          </button>
+          {showQueueButton && onAddToQueue && (
+            <AddToQueueButton
+              onClick={onAddToQueue}
+              size="sm"
+              disabled={!canPlay}
+              showOnGroupHover
+            />
         )}
         </div>
       </div>

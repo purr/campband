@@ -6,7 +6,7 @@ CampBand is a Firefox extension that transforms Bandcamp into a sleek, Spotify-l
 
 No more clunky page reloads or scattered tabs. Just smooth, seamless music browsing.
 
-![Rose Pine Theme](https://img.shields.io/badge/theme-Rose%20Pine-eb6f92)
+![Rosé Pine Theme](https://img.shields.io/badge/theme-Rose%20Pine-eb6f92)
 ![Firefox](https://img.shields.io/badge/browser-Firefox-ff7139)
 ![Built with Cursor](https://img.shields.io/badge/built%20with-Cursor%20AI-6366f1)
 
@@ -18,7 +18,7 @@ No more clunky page reloads or scattered tabs. Just smooth, seamless music brows
 - 🎵 **Audio Player** — Play, pause, skip, shuffle, repeat
 - 📋 **Queue System** — Slide-out queue panel with drag & drop
 - ❤️ **Favorites** — Save your favorite artists, albums, and tracks
-- 🌙 **Rose Pine Theme** — Beautiful dark UI with liquid glass effects
+- 🌙 **Rosé Pine Theme** — Beautiful dark UI with liquid glass effects
 - ✨ **Blurred Backdrops** — Album art becomes gorgeous, glowing backgrounds
 - 🖥️ **Media Controls** — Works with Windows/OS media keys
 

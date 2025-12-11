@@ -8,7 +8,7 @@ interface FollowingCoverProps {
 
 /**
  * Special cover art for the "Following" (artists) section.
- * Features a Users icon with our Rose Pine theme.
+ * Features a Users icon with our Rosé Pine theme.
  */
 export function FollowingCover({ size = 'large', className }: FollowingCoverProps) {
   const sizeClasses = {

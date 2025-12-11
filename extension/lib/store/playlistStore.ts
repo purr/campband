@@ -36,6 +36,9 @@ interface PlaylistState {
   getPlaylistTracks: (id: number) => Promise<FavoriteTrack[]>;
   getPlaylistWithTracks: (id: number) => Promise<PlaylistWithTracks | undefined>;
   getPlaylistArtIds: (trackIds: number[]) => number[];
+
+  // Helpers
+  isPlaylistNameTaken: (name: string, excludeId?: number) => boolean;
 }
 
 export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
@@ -77,9 +80,20 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
   },
 
   createPlaylist: async (name, description, coverImage) => {
+    // Check for unique name
+    const existingPlaylists = get().playlists;
+    const normalizedName = name.trim().toLowerCase();
+    const nameExists = existingPlaylists.some(
+      p => p.name.trim().toLowerCase() === normalizedName
+    );
+
+    if (nameExists) {
+      throw new Error(`A playlist named "${name}" already exists`);
+    }
+
     const now = new Date();
     const playlist: Omit<Playlist, 'id'> = {
-      name,
+      name: name.trim(),
       description,
       coverImage,
       trackIds: [],
@@ -103,6 +117,21 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
   },
 
   updatePlaylist: async (id, updates) => {
+    // Check for unique name if name is being updated
+    if (updates.name) {
+      const existingPlaylists = get().playlists;
+      const normalizedName = updates.name.trim().toLowerCase();
+      const nameExists = existingPlaylists.some(
+        p => p.id !== id && p.name.trim().toLowerCase() === normalizedName
+      );
+
+      if (nameExists) {
+        throw new Error(`A playlist named "${updates.name}" already exists`);
+      }
+
+      updates.name = updates.name.trim();
+    }
+
     try {
       await db.playlists.update(id, {
         ...updates,
@@ -299,6 +328,13 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
     return trackIds
       .map(id => artIds.get(id))
       .filter((artId): artId is number => artId !== undefined);
+  },
+
+  isPlaylistNameTaken: (name, excludeId) => {
+    const normalizedName = name.trim().toLowerCase();
+    return get().playlists.some(
+      p => p.name.trim().toLowerCase() === normalizedName && p.id !== excludeId
+    );
   },
 }));
 

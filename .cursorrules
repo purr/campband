@@ -6,7 +6,7 @@ CampBand is a modern Bandcamp alternative client built as a Firefox extension. I
 ## Tech Stack
 - **Framework:** WXT (Web Extension Framework for Firefox)
 - **UI:** React 18 + TypeScript
-- **Styling:** Tailwind CSS with Rose Pine theme
+- **Styling:** Tailwind CSS with Rosé Pine theme
 - **State:** Zustand
 - **Storage:** IndexedDB via Dexie.js
 - **Icons:** Lucide React
@@ -101,7 +101,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
 ### Styling
 - Use Tailwind CSS classes
-- Use CSS variables for theme colors (Rose Pine)
+- Use CSS variables for theme colors (Rosé Pine)
 - Use `cn()` utility for conditional classes
 - Prefer `gap` over margins for spacing
 - Use glassmorphism utilities: `.glass`, `.glass-subtle`
@@ -119,7 +119,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 - Ensure keyboard navigation works
 - Maintain focus states
 
-## Rose Pine Theme Colors
+## Rosé Pine Theme Colors
 ```
 Base:     #191724
 Surface:  #1f1d2e
@@ -171,6 +171,8 @@ const debouncedSearch = useDebouncedCallback((query: string) => {
 - Don't block UI during fetches
 - Don't store sensitive data in local storage
 - Don't make requests without rate limiting
+- **Don't hardcode SVGs/icons inline** - use existing icon files from `public/icon/` instead
+- Don't duplicate assets - if an icon/image exists as a file, import/reference it
 
 ## Testing
 - Write tests for utilities and stores

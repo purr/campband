@@ -1,40 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
-    <!-- Rose Pine gradient -->
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#eb6f92"/>
       <stop offset="100%" style="stop-color:#c4a7e7"/>
     </linearGradient>
-    <!-- Subtle inner glow -->
-    <radialGradient id="glow" cx="30%" cy="30%" r="70%">
-      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.2"/>
-      <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0"/>
-    </radialGradient>
   </defs>
 
-  <!-- Rounded square background -->
+  <!-- Background -->
   <rect x="4" y="4" width="120" height="120" rx="28" ry="28" fill="url(#bg)"/>
 
-  <!-- Inner glow overlay -->
-  <rect x="4" y="4" width="120" height="120" rx="28" ry="28" fill="url(#glow)"/>
-
-  <!-- Music bars / equalizer visualization -->
-  <g fill="#191724">
-    <!-- Left bar -->
-    <rect x="30" y="52" width="12" height="44" rx="6" opacity="0.9"/>
-    <!-- Center-left bar -->
-    <rect x="50" y="36" width="12" height="56" rx="6" opacity="0.9"/>
-    <!-- Center-right bar -->
-    <rect x="70" y="44" width="12" height="48" rx="6" opacity="0.9"/>
-    <!-- Right bar -->
-    <rect x="90" y="56" width="12" height="36" rx="6" opacity="0.9"/>
-  </g>
-
-  <!-- Subtle highlight on bars -->
-  <g fill="#ffffff" opacity="0.15">
-    <rect x="30" y="52" width="6" height="44" rx="3"/>
-    <rect x="50" y="36" width="6" height="56" rx="3"/>
-    <rect x="70" y="44" width="6" height="48" rx="3"/>
-    <rect x="90" y="56" width="6" height="36" rx="3"/>
+  <!-- Lucide ListMusic - exact paths from lucide-react -->
+  <g transform="translate(24, 24) scale(3.33)" fill="none" stroke="#191724" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 5H3"/>
+    <path d="M11 12H3"/>
+    <path d="M11 19H3"/>
+    <path d="M21 16V5"/>
+    <circle cx="18" cy="16" r="3" fill="#191724"/>
   </g>
 </svg>

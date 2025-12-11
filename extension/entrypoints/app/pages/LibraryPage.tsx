@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { User, Disc3, Music, Clock, Heart, Trash2, ChevronDown, ArrowUpDown, Layers } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, toPlayableTrack, historyEntryToTrack } from '@/lib/utils';
 import { formatSmartDate, timePeriodLabels, type TimePeriod } from '@/lib/utils/format';
 import { PageHeader } from '@/components/layout';
-import { Skeleton, TrackRow } from '@/components/ui';
-import { useLibraryStore, useRouterStore, useQueueStore, usePlayerStore, type SortOption, type HistoryGrouping } from '@/lib/store';
+import { Skeleton, TrackRow, EmptyState, useUnlikeConfirm } from '@/components/ui';
+import { useLibraryStore, useRouterStore, useQueueStore, usePlayerStore, useSettingsStore, type SortOption, type HistoryGrouping } from '@/lib/store';
 import { buildArtUrl, buildBioUrl, ImageSizes } from '@/types';
 import type { FavoriteArtist, FavoriteAlbum, FavoriteTrack, HistoryEntry } from '@/lib/db';
 
@@ -56,6 +56,8 @@ export function LibraryPage() {
   const { navigate } = useRouterStore();
   const { setQueue, addToQueue } = useQueueStore();
   const { play } = usePlayerStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnlikeTrack, confirmUnlikeAlbum, confirmUnfollowArtist } = useUnlikeConfirm();
 
   // Initialize library on mount
   useEffect(() => {
@@ -77,39 +79,6 @@ export function LibraryPage() {
     navigate({ name: 'album', url });
   };
 
-  // Convert FavoriteTrack to playable Track format
-  const toPlayableTrack = (track: FavoriteTrack) => ({
-    id: track.id,
-    trackId: track.id,
-    title: track.title,
-    artist: track.artist,
-    albumTitle: track.albumTitle,
-    albumId: track.albumId,
-    albumUrl: track.albumUrl,
-    artId: track.artId,
-    bandId: track.bandId,
-    bandName: track.bandName,
-    bandUrl: track.bandUrl,
-    duration: track.duration,
-    streamUrl: track.streamUrl,
-    trackNum: 1,
-    hasLyrics: false,
-    streaming: true,
-    isDownloadable: false,
-  });
-
-  // Convert HistoryEntry to track-like format for display
-  const historyToTrack = (entry: HistoryEntry) => ({
-    id: entry.itemId,
-    title: entry.title,
-    artist: entry.artist,
-    artId: entry.artId,
-    albumUrl: entry.albumUrl,
-    bandUrl: entry.bandUrl,
-    duration: 0, // History doesn't store duration
-    streamUrl: undefined, // Can't play directly from history
-  });
-
   const handleTrackPlay = (track: FavoriteTrack) => {
     if (track.streamUrl) {
       setQueue([toPlayableTrack(track)]);
@@ -123,11 +92,57 @@ export function LibraryPage() {
     }
   };
 
-  const handleToggleFavorite = (track: FavoriteTrack) => {
+  const handleToggleFavorite = async (track: FavoriteTrack) => {
     if (isFavoriteTrack(track.id)) {
-      removeFavoriteTrack(track.id);
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnlikeTrack(track.title);
+        if (confirmed) {
+          removeFavoriteTrack(track.id);
+        }
+      } else {
+        removeFavoriteTrack(track.id);
+      }
     } else {
       addFavoriteTrack(toPlayableTrack(track));
+    }
+  };
+
+  const handleRemoveArtist = async (artistId: number) => {
+    const artist = favoriteArtists.find(a => a.id === artistId);
+    if (!artist) return;
+
+    if (confirmOnUnlike) {
+      const confirmed = await confirmUnfollowArtist(artist.name);
+      if (confirmed) {
+        removeFavoriteArtist(artistId);
+      }
+    } else {
+      removeFavoriteArtist(artistId);
+    }
+  };
+
+  const handleRemoveAlbum = async (albumId: number) => {
+    const album = favoriteAlbums.find(a => a.id === albumId);
+    if (!album) return;
+
+    if (confirmOnUnlike) {
+      const confirmed = await confirmUnlikeAlbum(album.title);
+      if (confirmed) {
+        removeFavoriteAlbum(albumId);
+      }
+    } else {
+      removeFavoriteAlbum(albumId);
+    }
+  };
+
+  const handleRemoveHistoryTrack = async (trackId: number, trackTitle: string) => {
+    if (confirmOnUnlike) {
+      const confirmed = await confirmUnlikeTrack(trackTitle);
+      if (confirmed) {
+        removeFavoriteTrack(trackId);
+      }
+    } else {
+      removeFavoriteTrack(trackId);
     }
   };
 
@@ -222,7 +237,7 @@ export function LibraryPage() {
           <ArtistsGrid
             artists={getSortedArtists()}
             onArtistClick={handleArtistClick}
-            onRemove={removeFavoriteArtist}
+            onRemove={handleRemoveArtist}
           />
         )}
 
@@ -231,13 +246,13 @@ export function LibraryPage() {
             albums={getSortedAlbums()}
             onAlbumClick={handleAlbumClick}
             onArtistClick={handleArtistClick}
-            onRemove={removeFavoriteAlbum}
+            onRemove={handleRemoveAlbum}
           />
         )}
 
         {activeTab === 'tracks' && (
           favoriteTracks.length === 0 ? (
-            <EmptyState message="No favorite tracks yet" icon={<Music size={48} />} />
+            <LibraryEmptyState message="No favorite tracks yet" icon={<Music size={48} />} />
           ) : (
             <div className="space-y-0.5">
               {getSortedTracks().map((track) => (
@@ -271,7 +286,7 @@ export function LibraryPage() {
             onAlbumClick={handleAlbumClick}
             onArtistClick={handleArtistClick}
             isFavoriteTrack={isFavoriteTrack}
-            removeFavoriteTrack={removeFavoriteTrack}
+            onRemoveTrack={handleRemoveHistoryTrack}
             getTrackPlayCount={getTrackPlayCount}
           />
         )}
@@ -359,7 +374,7 @@ function HistorySection({
   onAlbumClick,
   onArtistClick,
   isFavoriteTrack,
-  removeFavoriteTrack,
+  onRemoveTrack,
   getTrackPlayCount,
 }: {
   history: HistoryEntry[];
@@ -370,25 +385,14 @@ function HistorySection({
   onAlbumClick: (url: string) => void;
   onArtistClick: (url: string) => void;
   isFavoriteTrack: (id: number) => boolean;
-  removeFavoriteTrack: (id: number) => void;
+  onRemoveTrack: (trackId: number, trackTitle: string) => void;
   getTrackPlayCount: (id: number) => number;
 }) {
   const [groupDropdownOpen, setGroupDropdownOpen] = useState(false);
 
   if (history.length === 0) {
-    return <EmptyState message="No listening history yet" icon={<Clock size={48} />} />;
+    return <LibraryEmptyState message="No listening history yet" icon={<Clock size={48} />} />;
   }
-
-  const historyToTrack = (entry: HistoryEntry) => ({
-    id: entry.itemId,
-    title: entry.title,
-    artist: entry.artist,
-    artId: entry.artId,
-    albumUrl: entry.albumUrl,
-    bandUrl: entry.bandUrl,
-    duration: 0,
-    streamUrl: undefined,
-  });
 
   const trackEntries = history.filter(e => e.type === 'track');
 
@@ -477,13 +481,13 @@ function HistorySection({
                   {trackEntriesInPeriod.map((entry) => (
                     <TrackRow
                       key={entry.id}
-                      track={historyToTrack(entry)}
+                      track={historyEntryToTrack(entry)}
                       onPlay={() => {}}
                       onTitleClick={() => entry.albumUrl && onAlbumClick(entry.albumUrl)}
                       onArtistClick={() => entry.bandUrl && onArtistClick(entry.bandUrl)}
                       onLike={() => {
                         if (isFavoriteTrack(entry.itemId)) {
-                          removeFavoriteTrack(entry.itemId);
+                          onRemoveTrack(entry.itemId, entry.title);
                         }
                       }}
                       isLiked={isFavoriteTrack(entry.itemId)}
@@ -504,13 +508,13 @@ function HistorySection({
           {trackEntries.map((entry) => (
             <TrackRow
               key={entry.id}
-              track={historyToTrack(entry)}
+              track={historyEntryToTrack(entry)}
               onPlay={() => {}}
               onTitleClick={() => entry.albumUrl && onAlbumClick(entry.albumUrl)}
               onArtistClick={() => entry.bandUrl && onArtistClick(entry.bandUrl)}
               onLike={() => {
                 if (isFavoriteTrack(entry.itemId)) {
-                  removeFavoriteTrack(entry.itemId);
+                  onRemoveTrack(entry.itemId, entry.title);
                 }
               }}
               isLiked={isFavoriteTrack(entry.itemId)}
@@ -541,7 +545,7 @@ function ArtistsGrid({
   onRemove: (id: number) => void;
 }) {
   if (artists.length === 0) {
-    return <EmptyState message="No favorite artists yet" icon={<User size={48} />} />;
+    return <LibraryEmptyState message="No favorite artists yet" icon={<User size={48} />} />;
   }
 
   return (
@@ -601,7 +605,7 @@ function AlbumsGrid({
   onRemove: (id: number) => void;
 }) {
   if (albums.length === 0) {
-    return <EmptyState message="No favorite albums yet" icon={<Disc3 size={48} />} />;
+    return <LibraryEmptyState message="No favorite albums yet" icon={<Disc3 size={48} />} />;
   }
 
   return (
@@ -654,13 +658,13 @@ function AlbumsGrid({
   );
 }
 
-function EmptyState({ message, icon }: { message: string; icon: React.ReactNode }) {
+function LibraryEmptyState({ message, icon }: { message: string; icon: React.ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-muted">
-      <div className="mb-4 opacity-50">{icon}</div>
-      <p>{message}</p>
-      <p className="text-sm mt-2">Start exploring to add favorites!</p>
-    </div>
+    <EmptyState
+      icon={icon}
+      title={message}
+      description="Start exploring to add favorites!"
+    />
   );
 }
 

@@ -1,7 +1,7 @@
 import { Sidebar } from './Sidebar';
 import { PlayerBar } from './PlayerBar';
 import { QueuePanel } from '@/components/player';
-import { CreatePlaylistModal, ContextMenuProvider } from '@/components/ui';
+import { PlaylistModal, ContextMenuProvider, ConfirmProvider, GlobalContextMenu } from '@/components/ui';
 import { useAudioPlayer } from '@/hooks/useAudioPlayer';
 import { LAYOUT_CLASSES } from '@/lib/constants/layout';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { seek } = useAudioPlayer();
 
   return (
+    <ConfirmProvider>
     <ContextMenuProvider>
     <div className="flex h-screen bg-base overflow-hidden">
       {/* Sidebar */}
@@ -38,8 +39,12 @@ export function AppLayout({ children }: AppLayoutProps) {
       <QueuePanel />
 
         {/* Global Modals */}
-        <CreatePlaylistModal />
+        <PlaylistModal />
+        
+        {/* Global Context Menu */}
+        <GlobalContextMenu />
     </div>
     </ContextMenuProvider>
+    </ConfirmProvider>
   );
 }

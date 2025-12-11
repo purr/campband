@@ -16,8 +16,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
-import { usePlayerStore, useQueueStore, useUIStore, useRouterStore, useLibraryStore } from '@/lib/store';
-import { IconButton, Slider, HeartButton, TrackContextMenu, useTrackContextMenu } from '@/components/ui';
+import { usePlayerStore, useQueueStore, useUIStore, useRouterStore, useLibraryStore, useSettingsStore } from '@/lib/store';
+import { IconButton, Slider, HeartButton, useUnlikeConfirm, useContextMenu } from '@/components/ui';
 import { buildArtUrl, ImageSizes } from '@/types';
 import { LAYOUT_CLASSES } from '@/lib/constants/layout';
 import { audioEngine } from '@/lib/audio';
@@ -227,13 +227,15 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
   const { toggleQueuePanel, queuePanelOpen } = useUIStore();
   const { navigate } = useRouterStore();
   const { isFavoriteTrack, addFavoriteTrack, removeFavoriteTrack } = useLibraryStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnlikeTrack } = useUnlikeConfirm();
 
   // Context menu for track
-  const { state: contextMenuState, openMenu, closeMenu } = useTrackContextMenu();
+  const { openTrackMenu } = useContextMenu();
 
   const handleTrackContextMenu = (e: React.MouseEvent) => {
     if (currentTrack) {
-      openMenu(e, currentTrack);
+      openTrackMenu(e, currentTrack);
     }
   };
 
@@ -314,10 +316,17 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
 
   const isTrackFavorite = currentTrack ? isFavoriteTrack(currentTrack.id) : false;
 
-  const handleToggleFavorite = () => {
+  const handleToggleFavorite = async () => {
     if (!currentTrack) return;
     if (isTrackFavorite) {
-      removeFavoriteTrack(currentTrack.id);
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnlikeTrack(currentTrack.title);
+        if (confirmed) {
+          removeFavoriteTrack(currentTrack.id);
+        }
+      } else {
+        removeFavoriteTrack(currentTrack.id);
+      }
     } else {
       addFavoriteTrack(currentTrack);
     }
@@ -340,8 +349,12 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
   };
 
   const handleArtClick = () => {
-    // Navigate to album (where the track is from)
-    if (currentTrack?.albumUrl) {
+    // Navigate to where playback started from (playlist, artist page, album, etc.)
+    const sourceRoute = useQueueStore.getState().getPlaybackSourceRoute();
+    if (sourceRoute) {
+      navigate(sourceRoute);
+    } else if (currentTrack?.albumUrl) {
+      // Fallback to album if no source route
       navigate({ name: 'album', url: currentTrack.albumUrl });
     }
   };
@@ -392,11 +405,9 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
             <button
               onClick={handleArtClick}
               onContextMenu={handleTrackContextMenu}
-              disabled={!currentTrack.albumUrl}
               className={cn(
                   'w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-highlight-med shadow-lg relative',
-                'transition-transform duration-200',
-                currentTrack.albumUrl && 'hover:scale-105 cursor-pointer'
+                'transition-transform duration-200 hover:scale-105 cursor-pointer'
               )}
             >
               {currentTrack.artId && (
@@ -534,15 +545,6 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
         />
         </div>
       </div>
-
-      {/* Track context menu (rendered via portal) */}
-      {contextMenuState.isOpen && contextMenuState.track && (
-        <TrackContextMenu
-          position={contextMenuState.position}
-          track={contextMenuState.track}
-          onClose={closeMenu}
-        />
-      )}
     </div>
   );
 }

@@ -11,6 +11,8 @@ import {
   Headphones,
   ExternalLink,
   Heart,
+  Settings2,
+  HeartOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
@@ -22,12 +24,23 @@ export function SettingsPage() {
       <PageHeader title="Settings" />
 
       <div className="px-8 py-6 space-y-6">
+        {/* Behavior Section */}
+        <SettingsSection
+          icon={<Settings2 size={22} />}
+          title="Behavior"
+          description="Confirmations and prompts"
+          defaultOpen={true}
+        >
+          <div className="space-y-2">
+            <BehaviorSettings />
+          </div>
+        </SettingsSection>
+
         {/* Audio Section */}
         <SettingsSection
           icon={<Headphones size={22} />}
           title="Audio"
           description="Playback and sound settings"
-          defaultOpen={true}
         >
           <div className="space-y-2">
             <CrossfadeSettings />
@@ -134,7 +147,7 @@ function CrossfadeSettings() {
         <SettingInfo
           icon={<Waves size={18} />}
           title="Crossfade"
-          description="Smoothly blend between tracks"
+          description={crossfadeEnabled ? `${crossfadeDuration}s blend between tracks` : 'Smoothly blend between tracks'}
         />
         <Toggle checked={crossfadeEnabled} onChange={setCrossfadeEnabled} />
       </div>
@@ -143,45 +156,19 @@ function CrossfadeSettings() {
       <div
         className={cn(
           'overflow-hidden transition-all duration-300 ease-out',
-          crossfadeEnabled ? 'max-h-48 opacity-100 mt-4' : 'max-h-0 opacity-0 mt-0'
+          crossfadeEnabled ? 'max-h-32 opacity-100 mt-4' : 'max-h-0 opacity-0 mt-0'
         )}
       >
-        <div className="pl-11 space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-text/70">Duration</span>
-            <span className="text-sm font-semibold text-rose tabular-nums px-3 py-1 rounded-lg bg-rose/10 min-w-[90px] text-center">
-              {crossfadeDuration} seconds
-            </span>
-          </div>
-
+        <div className="pl-11">
           {/* Custom smooth slider */}
-          <div className="relative h-10 flex items-center">
+          <div className="relative h-8 flex items-center">
             {/* Track background */}
-            <div className="absolute inset-x-0 h-2 bg-white/10 rounded-full" />
+            <div className="absolute inset-x-0 h-1.5 bg-white/10 rounded-full" />
 
             {/* Filled track */}
             <div
-              className="absolute left-0 h-2 bg-gradient-to-r from-rose to-rose/70 rounded-full transition-all duration-150 ease-out"
+              className="absolute left-0 h-1.5 bg-gradient-to-r from-rose to-rose/70 rounded-full transition-all duration-150 ease-out"
               style={{ width: `${((crossfadeDuration - 1) / 11) * 100}%` }}
-            />
-
-            {/* Tick marks */}
-            <div className="absolute inset-x-0 h-2 flex justify-between px-0.5">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((tick) => (
-                <div
-                  key={tick}
-                  className={cn(
-                    'w-0.5 h-full rounded-full transition-colors duration-150',
-                    tick <= crossfadeDuration ? 'bg-white/20' : 'bg-white/5'
-                  )}
-                />
-              ))}
-            </div>
-
-            {/* Thumb */}
-            <div
-              className="absolute w-5 h-5 -ml-2.5 rounded-full bg-rose shadow-lg shadow-rose/30 border-2 border-white/20 transition-all duration-150 ease-out hover:scale-110 hover:shadow-xl hover:shadow-rose/40"
-              style={{ left: `${((crossfadeDuration - 1) / 11) * 100}%` }}
             />
 
             {/* Invisible range input for interaction */}
@@ -196,18 +183,20 @@ function CrossfadeSettings() {
             />
           </div>
 
-          {/* Labels */}
-          <div className="flex justify-between text-[10px] text-text/40 -mt-1">
-            <span>1s</span>
-            <span>4s</span>
-            <span>8s</span>
-            <span>12s</span>
+          {/* Labels - every second */}
+          <div className="flex justify-between text-[10px] text-text/40 mt-1 px-0.5">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((s) => (
+              <span
+                key={s}
+                className={cn(
+                  'w-4 text-center',
+                  s === crossfadeDuration && 'text-rose font-medium'
+                )}
+              >
+                {s}
+              </span>
+            ))}
           </div>
-
-          <p className="text-xs text-text/40 leading-relaxed">
-            The next track will start playing {crossfadeDuration} seconds before the current track ends,
-            smoothly fading in while the current track fades out.
-          </p>
         </div>
       </div>
     </SettingCard>
@@ -261,6 +250,30 @@ function PlaybackSettings() {
         </div>
       </SettingCard>
     </>
+  );
+}
+
+// ============================================
+// Behavior Settings
+// ============================================
+
+function BehaviorSettings() {
+  const {
+    app: { confirmOnUnlike },
+    setConfirmOnUnlike,
+  } = useSettingsStore();
+
+  return (
+    <SettingCard>
+      <div className="flex items-center justify-between">
+        <SettingInfo
+          icon={<HeartOff size={18} />}
+          title="Confirm on Unlike"
+          description="Ask before removing from favorites"
+        />
+        <Toggle checked={confirmOnUnlike} onChange={setConfirmOnUnlike} />
+      </div>
+    </SettingCard>
   );
 }
 
@@ -479,7 +492,7 @@ function AboutInfo() {
       <SettingCard>
         <p className="text-sm text-text/50 leading-relaxed">
           CampBand is a modern Bandcamp client that provides a Spotify-like experience
-          for browsing and playing music. Built with <Heart size={12} className="inline text-love" fill="currentColor" /> using React and the Rose Pine theme.
+          for browsing and playing music. Built with <Heart size={12} className="inline text-love" fill="currentColor" /> using React and the Rosé Pine theme.
         </p>
       </SettingCard>
 
@@ -566,7 +579,7 @@ function Toggle({ checked, onChange }: ToggleProps) {
       onClick={() => onChange(!checked)}
       className={cn(
         'relative w-12 h-7 rounded-full transition-all duration-300 ease-out',
-        'focus:outline-none focus:ring-2 focus:ring-rose/30 focus:ring-offset-2 focus:ring-offset-base',
+        'focus:outline-none',
         checked
           ? 'bg-gradient-to-r from-rose to-rose/80 shadow-lg shadow-rose/20'
           : 'bg-white/10 hover:bg-white/15'

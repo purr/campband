@@ -1,6 +1,6 @@
 import { Play, Disc3, Music, Calendar, ListMusic } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Skeleton, AlbumContextMenu, useAlbumContextMenu } from '@/components/ui';
+import { Skeleton, useContextMenu } from '@/components/ui';
 import type { DiscographyItem } from '@/types';
 import { getArtworkUrl, ImageSizes } from '@/types';
 
@@ -9,20 +9,31 @@ type ViewMode = 'grid' | 'list';
 interface ReleaseGridProps {
   releases: DiscographyItem[];
   viewMode?: ViewMode;
+  /** Band info to include in context menu (for proper liking) */
+  bandInfo?: {
+    id: number;
+    name: string;
+    url: string;
+  };
   onReleaseClick?: (release: DiscographyItem) => void;
   onReleasePlay?: (release: DiscographyItem) => void;
 }
 
-export function ReleaseGrid({ releases, viewMode = 'grid', onReleaseClick, onReleasePlay }: ReleaseGridProps) {
-  const { state: contextMenuState, openMenu: openContextMenu, closeMenu: closeContextMenu } = useAlbumContextMenu();
+export function ReleaseGrid({ releases, viewMode = 'grid', bandInfo, onReleaseClick, onReleasePlay }: ReleaseGridProps) {
+  const { openAlbumMenu } = useContextMenu();
 
   const handleContextMenu = (e: React.MouseEvent, release: DiscographyItem) => {
-    openContextMenu(e, {
+    openAlbumMenu(e, {
       id: release.itemId,
       title: release.title,
-      artist: release.bandName || release.artistOverride || '',
+      // Use band name from bandInfo (passed from artist page) or fall back to release data
+      artist: bandInfo?.name || release.bandName || release.artistOverride || '',
       url: release.url,
       artId: release.artId,
+      // Include band info for proper favoriting
+      bandId: bandInfo?.id || release.bandId,
+      bandUrl: bandInfo?.url,
+      releaseDate: release.releaseDate,
     });
   };
 
@@ -36,31 +47,21 @@ export function ReleaseGrid({ releases, viewMode = 'grid', onReleaseClick, onRel
 
   if (viewMode === 'list') {
     return (
-      <>
-        <div className="space-y-1">
-          {releases.map((release) => (
-            <ReleaseListItem
-              key={`${release.itemType}-${release.itemId}`}
-              release={release}
-              onClick={() => onReleaseClick?.(release)}
-              onPlay={() => onReleasePlay?.(release)}
-              onContextMenu={(e) => handleContextMenu(e, release)}
-            />
-          ))}
-        </div>
-        {contextMenuState.isOpen && contextMenuState.album && (
-          <AlbumContextMenu
-            position={contextMenuState.position}
-            album={contextMenuState.album}
-            onClose={closeContextMenu}
+      <div className="space-y-1">
+        {releases.map((release) => (
+          <ReleaseListItem
+            key={`${release.itemType}-${release.itemId}`}
+            release={release}
+            onClick={() => onReleaseClick?.(release)}
+            onPlay={() => onReleasePlay?.(release)}
+            onContextMenu={(e) => handleContextMenu(e, release)}
           />
-        )}
-      </>
+        ))}
+      </div>
     );
   }
 
   return (
-    <>
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
       {releases.map((release) => (
         <ReleaseCard
@@ -68,18 +69,10 @@ export function ReleaseGrid({ releases, viewMode = 'grid', onReleaseClick, onRel
           release={release}
           onClick={() => onReleaseClick?.(release)}
           onPlay={() => onReleasePlay?.(release)}
-            onContextMenu={(e) => handleContextMenu(e, release)}
+          onContextMenu={(e) => handleContextMenu(e, release)}
         />
       ))}
     </div>
-      {contextMenuState.isOpen && contextMenuState.album && (
-        <AlbumContextMenu
-          position={contextMenuState.position}
-          album={contextMenuState.album}
-          onClose={closeContextMenu}
-        />
-      )}
-    </>
   );
 }
 

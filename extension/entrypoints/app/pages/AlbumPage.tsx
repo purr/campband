@@ -3,7 +3,8 @@ import { Music } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 import { CollectionHeader, TrackList } from '@/components/shared';
 import { AlbumAbout } from '@/components/album';
-import { useAlbumStore, useLibraryStore, useQueueStore, usePlayerStore, useRouterStore } from '@/lib/store';
+import { useUnlikeConfirm } from '@/components/ui';
+import { useAlbumStore, useLibraryStore, useQueueStore, usePlayerStore, useRouterStore, useSettingsStore } from '@/lib/store';
 import { buildArtUrl, ImageSizes } from '@/types';
 import type { Track } from '@/types';
 
@@ -16,6 +17,8 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
   const { isFavoriteAlbum, addFavoriteAlbum, removeFavoriteAlbum } = useLibraryStore();
   const { setQueue, setShuffle, addMultipleToQueue } = useQueueStore();
   const { play, currentTrack, isPlaying } = usePlayerStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmUnlikeAlbum } = useUnlikeConfirm();
 
   useEffect(() => {
     loadAlbum(albumUrl);
@@ -61,10 +64,17 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
     }
   };
 
-  const handleFavoriteToggle = () => {
+  const handleFavoriteToggle = async () => {
     if (!currentAlbum) return;
     if (isFavoriteAlbum(currentAlbum.id)) {
-      removeFavoriteAlbum(currentAlbum.id);
+      if (confirmOnUnlike) {
+        const confirmed = await confirmUnlikeAlbum(currentAlbum.title);
+        if (confirmed) {
+          removeFavoriteAlbum(currentAlbum.id);
+        }
+      } else {
+        removeFavoriteAlbum(currentAlbum.id);
+      }
     } else {
       addFavoriteAlbum(currentAlbum);
     }
