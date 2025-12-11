@@ -1,11 +1,11 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 
 // ============================================
 // GLOBAL SMOOTH SCROLL SETTINGS
 // ============================================
 
 /** How fast scroll catches up to target (0.05 = very slow, 0.15 = medium, 0.3 = fast) */
-export const SCROLL_SMOOTHNESS = 0.08;
+export const SCROLL_SMOOTHNESS = 0.12;
 
 /** How quickly momentum decays when user stops scrolling (0.5 = stops fast, 0.9 = coasts long) */
 export const SCROLL_FRICTION = 0.5;
@@ -33,6 +33,16 @@ export function useSmoothScroll<T extends HTMLElement>(
   const velocity = useRef(0);
   const animationFrame = useRef<number | null>(null);
   const lastWheelTime = useRef(0);
+  
+  // Force effect to re-run when element becomes available
+  const [, setMounted] = useState(false);
+  
+  // Use layout effect to detect when element is available
+  useLayoutEffect(() => {
+    if (ref.current) {
+      setMounted(true);
+    }
+  }, [ref]);
 
   useEffect(() => {
     const element = ref.current;
@@ -42,7 +52,8 @@ export function useSmoothScroll<T extends HTMLElement>(
     currentScrollTop.current = element.scrollTop;
 
     const animate = () => {
-      if (!element) return;
+      const el = ref.current;
+      if (!el) return;
 
       const now = performance.now();
       const timeSinceLastWheel = now - lastWheelTime.current;
@@ -60,12 +71,12 @@ export function useSmoothScroll<T extends HTMLElement>(
       }
 
       // Apply velocity
-      const maxScroll = element.scrollHeight - element.clientHeight;
+      const maxScroll = el.scrollHeight - el.clientHeight;
       currentScrollTop.current = Math.max(
         0,
         Math.min(maxScroll, currentScrollTop.current + velocity.current)
       );
-      element.scrollTop = currentScrollTop.current;
+      el.scrollTop = currentScrollTop.current;
 
       // Continue animation
       animationFrame.current = requestAnimationFrame(animate);

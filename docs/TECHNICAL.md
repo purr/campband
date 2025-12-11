@@ -486,6 +486,46 @@ class CampBandDB extends Dexie {
 | `cachedArtists` | `id` (bandId) | cachedAt, expiresAt | Artist cache |
 | `cachedAlbums` | `id` (albumId) | url, cachedAt, expiresAt | Album cache |
 
+## Data Export/Import
+
+CampBand supports exporting and importing user data for backup and sharing.
+
+### Export Options
+Users can select what to include in the export:
+- **Likes**: Liked tracks and albums with metadata
+- **Playlists**: All playlists with track data
+- **Following**: Followed artists
+- **Settings**: Audio and app preferences
+- **Include Cover Images**: Optional base64-encoded cover art (makes file larger but allows offline viewing)
+
+### Export Format
+```typescript
+interface ExportedData {
+  version: number;           // Schema version (currently 1)
+  exportedAt: string;        // ISO timestamp
+  app: 'CampBand';           // App identifier
+  likedTracks?: Track[];     // With optional coverBase64
+  likedAlbums?: Album[];     // With optional coverBase64
+  following?: Artist[];      // With optional imageBase64
+  playlists?: Playlist[];    // With embedded track data
+  settings?: {
+    audio: AudioSettings;
+    app: AppSettings;
+  };
+}
+```
+
+### Import Behavior
+- **Additive**: Import adds to existing data, never replaces
+- **Duplicate Detection**: Items are skipped if already exist (by ID for tracks/albums/artists, by name for playlists)
+- **Track Metadata**: Playlist tracks are stored in favoriteTracks table
+- **Progress Feedback**: Real-time progress messages during import
+
+### Implementation
+- Export: `lib/utils/dataExport.ts` - `exportData()`, `downloadExport()`
+- Import: `lib/utils/dataExport.ts` - `importData()`, `readFileAsString()`
+- UI: `components/settings/DataManagement.tsx`
+
 ## Component Structure
 
 ```

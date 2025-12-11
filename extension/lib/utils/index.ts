@@ -43,4 +43,12 @@ export {
   type MenuType,
   type MenuState,
 } from './contextMenuCoordinator';
-
+export {
+  exportData,
+  downloadExport,
+  importData,
+  readFileAsString,
+  type ExportOptions,
+  type ExportedData,
+  type ImportResult,
+} from './dataExport';

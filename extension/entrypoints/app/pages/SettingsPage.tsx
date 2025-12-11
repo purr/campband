@@ -13,10 +13,12 @@ import {
   Heart,
   Settings2,
   HeartOff,
+  Database,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
 import { useSettingsStore, EQ_FREQUENCIES, EQ_PRESETS, type EqualizerPreset } from '@/lib/store/settingsStore';
+import { DataManagement } from '@/components/settings/DataManagement';
 
 export function SettingsPage() {
   return (
@@ -47,6 +49,15 @@ export function SettingsPage() {
             <PlaybackSettings />
             <EqualizerSettings />
           </div>
+        </SettingsSection>
+
+        {/* Data Section */}
+        <SettingsSection
+          icon={<Database size={22} />}
+          title="Data"
+          description="Export and import your library"
+        >
+          <DataManagement />
         </SettingsSection>
 
         {/* About Section */}

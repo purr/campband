@@ -204,9 +204,9 @@
 - ✅ Web Audio API integration (EQ filters, compressor, mono mix)
 - ✅ Volume normalization (DynamicsCompressorNode)
 - ✅ Mono audio (ChannelSplitter/Merger)
+- ✅ Data Export/Import (likes, playlists, following, settings, with optional cover images)
 - [ ] Cache settings
 - [ ] Theme customization
-- [ ] Import/Export library
 
 ### First-Time Experience
 - ✅ Welcome screen (home page)
@@ -288,6 +288,9 @@
 - ✅ Artist/release caching system (memory + IndexedDB) for instant re-navigation
 - ✅ Play All loads ALL artist releases (not just 5 or 10)
 - ✅ Playlist picker submenu positioning fixed (stays in viewport)
+- ✅ Unlike confirmation modal fixed (stale closure bug)
+- ✅ Enter key support for confirmation dialogs
+- ✅ Data Export/Import feature (likes, playlists, following, settings, optional covers)
 
 ## Audio Engine (December 2024)
 Full Web Audio API implementation:
@@ -300,14 +303,14 @@ Full Web Audio API implementation:
 
 ---
 
-*Last updated: December 2024*
+*Last updated: December 11, 2024*
 
 ---
 
 ## Ideas Backlog
 
 ### Features
-- Collaborative playlists (via export/import)
+- ✅ Collaborative playlists (via export/import - share backup files)
 - Artist radio (play similar artists/albums)
 - Integration with MusicBrainz for better metadata
 - PWA version (non-extension)
