@@ -147,9 +147,9 @@
 
 ### Caching
 - ✅ Cache tables in database schema (ready for use)
-- [ ] Implement artist metadata caching
-- [ ] Implement album/track metadata caching
-- [ ] Cache invalidation strategy (TTL-based)
+- ✅ Implement artist metadata caching (memory + IndexedDB, 1hr TTL)
+- ✅ Implement album/track metadata caching (memory + IndexedDB, 24hr TTL)
+- ✅ Cache invalidation strategy (TTL-based, automatic expiry)
 - [ ] User settings for cache size
 
 ---
@@ -285,6 +285,9 @@
 - ✅ Responsive track list columns (hide Added → Album → Duration as page narrows)
 - ✅ Sortable track list columns (click to sort by title, album, added, duration)
 - ✅ Duration column uses clock icon (permanent), other columns use text
+- ✅ Artist/release caching system (memory + IndexedDB) for instant re-navigation
+- ✅ Play All loads ALL artist releases (not just 5 or 10)
+- ✅ Playlist picker submenu positioning fixed (stays in viewport)
 
 ## Audio Engine (December 2024)
 Full Web Audio API implementation:

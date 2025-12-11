@@ -511,7 +511,7 @@ function ArtistMenuContent({ artist }: { artist: ArtistData }) {
   const { play } = usePlayerStore();
   const { loadArtistReleasesForPlayback } = useArtistStore();
   const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
-  const { confirmUnlikeArtist } = useUnlikeConfirm();
+  const { confirmUnfollowArtist } = useUnlikeConfirm();
   const [copied, setCopied] = useState(false);
   const [isLoadingPlayback, setIsLoadingPlayback] = useState(false);
   const [playingNext, setPlayingNext] = useState(false);
@@ -522,7 +522,8 @@ function ArtistMenuContent({ artist }: { artist: ArtistData }) {
   const handlePlay = async () => {
     setIsLoadingPlayback(true);
     try {
-      const tracks = await loadArtistReleasesForPlayback(artist.url, 5);
+      // Load ALL releases (no limit) - uses cache for speed
+      const tracks = await loadArtistReleasesForPlayback(artist.url);
       if (tracks.length > 0) {
         setQueue(tracks);
         play();
@@ -536,7 +537,8 @@ function ArtistMenuContent({ artist }: { artist: ArtistData }) {
   const handlePlayNext = async () => {
     setIsLoadingPlayback(true);
     try {
-      const tracks = await loadArtistReleasesForPlayback(artist.url, 5);
+      // Load ALL releases (no limit) - uses cache for speed
+      const tracks = await loadArtistReleasesForPlayback(artist.url);
       if (tracks.length > 0) {
         insertMultipleNext(tracks);
         setPlayingNext(true);
@@ -552,7 +554,8 @@ function ArtistMenuContent({ artist }: { artist: ArtistData }) {
   const handleAddToQueue = async () => {
     setIsLoadingPlayback(true);
     try {
-      const tracks = await loadArtistReleasesForPlayback(artist.url, 5);
+      // Load ALL releases (no limit) - uses cache for speed
+      const tracks = await loadArtistReleasesForPlayback(artist.url);
       if (tracks.length > 0) {
         addMultipleToQueue(tracks);
         setAddedToQueue(true);
@@ -579,7 +582,7 @@ function ArtistMenuContent({ artist }: { artist: ArtistData }) {
   const handleToggleLike = async () => {
     if (isLiked) {
       if (confirmOnUnlike) {
-        const confirmed = await confirmUnlikeArtist(artist.name);
+        const confirmed = await confirmUnfollowArtist(artist.name);
         if (confirmed) {
           removeFavoriteArtist(artist.id);
         }

@@ -5,7 +5,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 // ============================================
 
 /** How fast scroll catches up to target (0.05 = very slow, 0.15 = medium, 0.3 = fast) */
-export const SCROLL_SMOOTHNESS = 0.06;
+export const SCROLL_SMOOTHNESS = 0.08;
 
 /** How quickly momentum decays when user stops scrolling (0.5 = stops fast, 0.9 = coasts long) */
 export const SCROLL_FRICTION = 0.5;

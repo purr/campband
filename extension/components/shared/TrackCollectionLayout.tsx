@@ -600,7 +600,7 @@ function SortableHeader({
             : <ChevronDown size={10} />
         ) : (
           <ChevronUp size={10} />
-        )}
+      )}
       </span>
     </button>
   );
@@ -739,9 +739,9 @@ function TrackListRow({
 
       {/* Duration */}
       {showDuration && (
-        <span className="text-sm text-text/60 tabular-nums text-right">
-          {formatTime(track.duration)}
-        </span>
+      <span className="text-sm text-text/60 tabular-nums text-right">
+        {formatTime(track.duration)}
+      </span>
       )}
     </div>
   );
@@ -1090,24 +1090,24 @@ function PlaylistTrackRow({
 
       {/* Album */}
       {showAlbum && (
-        <button
-          onClick={handleAlbumClick}
-          disabled={!track.albumUrl}
-          className={cn(
-            'text-sm text-text/60 truncate text-left',
-            'transition-colors duration-150',
-            track.albumUrl && 'hover:text-text cursor-pointer'
-          )}
-        >
-          {track.albumTitle || '—'}
-        </button>
+      <button
+        onClick={handleAlbumClick}
+        disabled={!track.albumUrl}
+        className={cn(
+          'text-sm text-text/60 truncate text-left',
+          'transition-colors duration-150',
+          track.albumUrl && 'hover:text-text cursor-pointer'
+        )}
+      >
+        {track.albumTitle || '—'}
+      </button>
       )}
 
       {/* Date Added */}
       {showAdded && (
-        <span className="text-sm text-text/60 truncate">
-          {track.addedAt ? formatSmartDate(track.addedAt) : '—'}
-        </span>
+      <span className="text-sm text-text/60 truncate">
+        {track.addedAt ? formatSmartDate(track.addedAt) : '—'}
+      </span>
       )}
 
       {/* Action buttons (heart + queue) */}
@@ -1128,9 +1128,9 @@ function PlaylistTrackRow({
 
       {/* Duration */}
       {showDuration && (
-        <span className="text-sm text-text/60 tabular-nums text-right">
-          {formatTime(track.duration)}
-        </span>
+      <span className="text-sm text-text/60 tabular-nums text-right">
+        {formatTime(track.duration)}
+      </span>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useState, useImperativeHandle, forwardRef, type ReactNode } from 'react';
+import { useEffect, useState, useImperativeHandle, forwardRef, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -27,6 +27,8 @@ export interface BaseModalProps {
   closeOnEscape?: boolean;
   /** Whether to show the X close button (default: true) */
   showCloseButton?: boolean;
+  /** Optional keyboard event handler for custom key handling */
+  onKeyDown?: (e: React.KeyboardEvent) => void;
 }
 
 /**
@@ -49,14 +51,18 @@ export const BaseModal = forwardRef<BaseModalRef, BaseModalProps>(function BaseM
   closeOnBackdrop = true,
   closeOnEscape = true,
   showCloseButton = true,
+  onKeyDown: externalKeyDown,
 }, ref) {
   const [isVisible, setIsVisible] = useState(false);
+  const backdropRef = useRef<HTMLDivElement>(null);
 
-  // Enter animation when modal opens
+  // Enter animation when modal opens and focus the modal
   useEffect(() => {
     if (isOpen) {
       requestAnimationFrame(() => {
         setIsVisible(true);
+        // Focus the modal so keyboard events work
+        backdropRef.current?.focus();
       });
     }
   }, [isOpen]);
@@ -88,6 +94,9 @@ export const BaseModal = forwardRef<BaseModalRef, BaseModalProps>(function BaseM
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Call external key handler first
+    externalKeyDown?.(e);
+
     if (closeOnEscape && e.key === 'Escape') {
       handleClose();
     }
@@ -97,10 +106,12 @@ export const BaseModal = forwardRef<BaseModalRef, BaseModalProps>(function BaseM
 
   return createPortal(
     <div
+      ref={backdropRef}
       className={cn(
         'fixed inset-0 z-[9999] flex items-center justify-center',
         'bg-base/60 backdrop-blur-md',
         'transition-opacity duration-150',
+        'outline-none', // Prevent focus ring
         isVisible ? 'opacity-100' : 'opacity-0'
       )}
       onClick={handleBackdropClick}

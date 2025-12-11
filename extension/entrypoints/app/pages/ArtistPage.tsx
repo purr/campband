@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Grid3X3, List } from 'lucide-react';
-import { cn, linkifyText } from '@/lib/utils';
+import { cn, linkifyText, shuffleTracks } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
 import { ArtistHeader, ArtistHeaderSkeleton, ReleaseGrid, ReleaseGridSkeleton } from '@/components/artist';
 import { useRouterStore, useArtistStore, useQueueStore, usePlayerStore, useUIStore } from '@/lib/store';
@@ -18,13 +18,14 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
     error,
     loadArtist,
     loadRelease,
+    loadArtistReleasesForPlayback,
   } = useArtistStore();
   const { setQueue, setShuffle } = useQueueStore();
   const { play } = usePlayerStore();
   const { setQueuePanelOpen, artistDiscographyViewMode, setArtistDiscographyViewMode } = useUIStore();
   const [isLoadingAll, setIsLoadingAll] = useState(false);
 
-  // Load artist on mount
+  // Load artist on mount (uses cache if available)
   useEffect(() => {
     loadArtist(artistUrl);
   }, [artistUrl, loadArtist]);
@@ -47,8 +48,8 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
   };
 
   /**
-   * Play All - loads multiple releases and queues all tracks
-   * Like Spotify, we load a batch of releases to avoid long waits
+   * Play All - loads ALL releases and queues all tracks
+   * Uses caching for speed - subsequent plays are instant
    */
   const handlePlayAll = async (shouldShuffle = false) => {
     if (!currentArtist || isLoadingAll) return;
@@ -56,50 +57,17 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
     setIsLoadingAll(true);
 
     try {
-      const allTracks: Track[] = [];
-      const releasesToLoad = currentArtist.releases.slice(0, 10); // Load first 10 releases
+      // Load ALL releases using cached function (no limit)
+      const allTracks = await loadArtistReleasesForPlayback(artistUrl);
 
-      // Load releases in parallel (but with some batching to not overwhelm)
-      const batchSize = 3;
-      for (let i = 0; i < releasesToLoad.length; i += batchSize) {
-        const batch = releasesToLoad.slice(i, i + batchSize);
-        const results = await Promise.all(
-          batch.map(release => loadRelease(release.url, release.itemId))
-        );
-
-        for (const album of results) {
-          if (album) {
-            const streamable = album.tracks.filter(t => t.streamUrl);
-            allTracks.push(...streamable);
-          }
-        }
-
-        // Start playing as soon as we have some tracks
-        if (i === 0 && allTracks.length > 0) {
-          // If shuffle requested, shuffle the tracks before setting queue
-          if (shouldShuffle) {
-            shuffleArray(allTracks);
-          }
-          setQueue(allTracks);
-          play();
-          // Open queue panel to show what's playing
-          setQueuePanelOpen(true);
-        }
-      }
-
-      // Update queue with all loaded tracks
       if (allTracks.length > 0) {
-        if (shouldShuffle) {
-          // Keep first track (now playing), shuffle the rest
-          const [first, ...rest] = allTracks;
-          shuffleArray(rest);
-          setQueue([first, ...rest]);
-        } else {
-          setQueue(allTracks);
-        }
+        // Shuffle if requested
+        const tracksToPlay = shouldShuffle ? shuffleTracks(allTracks) : allTracks;
 
-        // Update shuffle state in queue store
+        setQueue(tracksToPlay);
         setShuffle(shouldShuffle);
+        play();
+        setQueuePanelOpen(true);
       }
     } catch (err) {
       console.error('[ArtistPage] Failed to load all tracks:', err);
@@ -227,14 +195,4 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
       </div>
     </div>
   );
-}
-
-/**
- * Fisher-Yates shuffle (in-place)
- */
-function shuffleArray<T>(array: T[]): void {
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
-  }
 }

@@ -93,9 +93,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ConfirmState>(defaultState);
   const modalRef = useRef<BaseModalRef>(null);
   const pendingResult = useRef<boolean>(false);
+  const resolveRef = useRef<((value: boolean) => void) | null>(null);
 
   const confirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
     return new Promise((resolve) => {
+      resolveRef.current = resolve; // Store in ref to avoid stale closure
       setState({
         isOpen: true,
         options: {
@@ -117,10 +119,20 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   // Called by BaseModal after animation completes
   const handleClose = useCallback(() => {
-    state.resolve?.(pendingResult.current);
+    // Use ref to ensure we always have the current resolve function
+    resolveRef.current?.(pendingResult.current);
+    resolveRef.current = null;
     pendingResult.current = false;
     setState(defaultState);
-  }, [state.resolve]);
+  }, []);
+
+  // Handle Enter key to confirm
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleButtonClick(true);
+    }
+  }, [handleButtonClick]);
 
   const variantStyles = {
     danger: {
@@ -151,6 +163,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         onClose={handleClose}
         title={state.options.title}
         maxWidth="max-w-sm"
+        onKeyDown={handleKeyDown}
         footer={
           <ModalButtonGroup>
             <ModalButton onClick={() => handleButtonClick(false)} variant="secondary">

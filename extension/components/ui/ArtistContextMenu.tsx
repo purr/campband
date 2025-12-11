@@ -149,33 +149,14 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
     handleClose();
   };
 
-  // Helper to load artist tracks (fetches releases and extracts streamable tracks)
-  const loadArtistTracks = async (): Promise<Track[]> => {
-    const { fetchArtistPage, fetchReleasePage } = await import('@/lib/api');
-
-    const artistPage = await fetchArtistPage(artist.url);
-    const allTracks: Track[] = [];
-
-    // Load first 5 releases to get tracks (don't want to wait too long)
-    const releasesToLoad = artistPage.releases.slice(0, 5);
-
-    for (const release of releasesToLoad) {
-      try {
-        const releaseData = await fetchReleasePage(release.url);
-        const streamable = releaseData.tracks.filter(t => t.streamUrl);
-        allTracks.push(...streamable);
-      } catch (e) {
-        console.error('[ArtistContextMenu] Failed to load release:', e);
-      }
-    }
-
-    return allTracks;
-  };
+  // Use the store's cached loader for all releases
+  const { loadArtistReleasesForPlayback } = useArtistStore();
 
   const handlePlay = async () => {
     setIsLoading(true);
     try {
-      const tracks = await loadArtistTracks();
+      // Load ALL releases (uses cache for speed)
+      const tracks = await loadArtistReleasesForPlayback(artist.url);
       if (tracks.length > 0) {
         setQueue(tracks);
         play();
@@ -189,7 +170,8 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
   const handlePlayNext = async () => {
     setIsLoading(true);
     try {
-      const tracks = await loadArtistTracks();
+      // Load ALL releases (uses cache for speed)
+      const tracks = await loadArtistReleasesForPlayback(artist.url);
       if (tracks.length > 0) {
         insertMultipleNext(tracks);
         setPlayingNext(true);
@@ -207,7 +189,8 @@ export function ArtistContextMenu({ position, artist, onClose }: ArtistContextMe
   const handleAddToQueue = async () => {
     setIsLoading(true);
     try {
-      const tracks = await loadArtistTracks();
+      // Load ALL releases (uses cache for speed)
+      const tracks = await loadArtistReleasesForPlayback(artist.url);
       if (tracks.length > 0) {
         addMultipleToQueue(tracks);
         setAddedToQueue(true);
