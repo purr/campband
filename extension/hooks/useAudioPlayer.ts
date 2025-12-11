@@ -140,8 +140,30 @@ export function useAudioPlayer() {
         shouldAutoPlay.current = false;
       },
       onCrossfadeStart: () => {
-        // Get next track URL and start crossfade
+        const currentRepeat = repeatRef.current;
         const { queue, currentIndex } = queueRef.current;
+
+        // Loop single track: crossfade to the same track
+        if (currentRepeat === 'track') {
+          const currentTrack = queue[currentIndex];
+          if (currentTrack?.streamUrl) {
+            isCrossfading.current = true;
+
+            audioEngine.crossfadeTo(currentTrack.streamUrl).then(() => {
+              isCrossfading.current = false;
+              // Reset time display but don't change queue
+              setCurrentTime(0);
+            }).catch((err) => {
+              console.error('[useAudioPlayer] Loop crossfade failed:', err);
+              isCrossfading.current = false;
+              // Fallback: just seek to start
+              audioEngine.seek(0);
+            });
+          }
+          return;
+        }
+
+        // Get next track URL and start crossfade
         const nextTrack = queue[currentIndex + 1];
 
         if (nextTrack?.streamUrl) {
@@ -195,14 +217,15 @@ export function useAudioPlayer() {
   // Preload next track for gapless/crossfade playback
   useEffect(() => {
     if (!audioSettings.gaplessPlayback && !audioSettings.crossfadeEnabled) return;
-    
+
     const nextTrack = queue[currentIndex + 1];
-    if (nextTrack?.streamUrl && nextTrack.streamUrl.startsWith('http')) {
+    const nextStreamUrl = nextTrack?.streamUrl;
+    if (nextStreamUrl && nextStreamUrl.startsWith('http')) {
       // Preload after a short delay to not interfere with current load
       const timeout = setTimeout(() => {
-        audioEngine.preloadNext(nextTrack.streamUrl);
+        audioEngine.preloadNext(nextStreamUrl);
       }, 2000);
-      
+
       return () => clearTimeout(timeout);
     }
   }, [currentIndex, queue, audioSettings.gaplessPlayback, audioSettings.crossfadeEnabled]);

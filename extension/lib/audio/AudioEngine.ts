@@ -1,6 +1,6 @@
 /**
  * AudioEngine - Full-featured audio playback with Web Audio API
- * 
+ *
  * Features:
  * - Crossfade between tracks
  * - 10-band Equalizer
@@ -41,7 +41,7 @@ const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 class AudioEngine {
   // Audio Context (Web Audio API)
   private audioContext: AudioContext | null = null;
-  
+
   // Primary audio element
   private audio: HTMLAudioElement | null = null;
   private currentBlobUrl: string | null = null;
@@ -57,15 +57,15 @@ class AudioEngine {
   // EQ filter nodes (10 bands)
   private eqFilters: BiquadFilterNode[] = [];
   private crossfadeEqFilters: BiquadFilterNode[] = [];
-  
+
   // Gain nodes for volume control
   private gainNode: GainNode | null = null;
   private crossfadeGainNode: GainNode | null = null;
-  
+
   // Compressor for volume normalization
   private compressorNode: DynamicsCompressorNode | null = null;
   private crossfadeCompressorNode: DynamicsCompressorNode | null = null;
-  
+
   // Channel merger for mono audio
   private channelMerger: ChannelMergerNode | null = null;
   private channelSplitter: ChannelSplitterNode | null = null;
@@ -76,7 +76,7 @@ class AudioEngine {
   private currentSrc: string | null = null;
   private abortController: AbortController | null = null;
   private crossfadeTriggered = false;
-  
+
   // Preloaded next track for gapless
   private preloadedNextSrc: string | null = null;
   private preloadedBlob: Blob | null = null;
@@ -101,11 +101,19 @@ class AudioEngine {
   }
 
   private init() {
-    // Create audio elements
+    // Create audio elements and append to DOM (hidden)
+    // This allows other extensions (like Auto-Stop) to detect media playback
     this.audio = new Audio();
     this.audio.preload = 'auto';
+    this.audio.style.display = 'none';
+    this.audio.id = 'campband-audio-primary';
+    document.body.appendChild(this.audio);
+
     this.crossfadeAudio = new Audio();
     this.crossfadeAudio.preload = 'auto';
+    this.crossfadeAudio.style.display = 'none';
+    this.crossfadeAudio.id = 'campband-audio-crossfade';
+    document.body.appendChild(this.crossfadeAudio);
 
     // Audio context will be created on first user interaction
     // (browsers require user gesture to start AudioContext)
@@ -119,7 +127,7 @@ class AudioEngine {
       this.audioContext = new AudioContext();
       this.setupAudioGraph();
     }
-    
+
     if (this.audioContext.state === 'suspended') {
       await this.audioContext.resume();
     }
@@ -163,7 +171,7 @@ class AudioEngine {
 
     return EQ_FREQUENCIES.map((freq, index) => {
       const filter = this.audioContext!.createBiquadFilter();
-      
+
       // Use different filter types for edge bands
       if (index === 0) {
         filter.type = 'lowshelf';
@@ -173,10 +181,10 @@ class AudioEngine {
         filter.type = 'peaking';
         filter.Q.value = 1.4; // Bandwidth
       }
-      
+
       filter.frequency.value = freq;
       filter.gain.value = 0;
-      
+
       return filter;
     });
   }
@@ -186,14 +194,14 @@ class AudioEngine {
    */
   private createCompressor(): DynamicsCompressorNode {
     const compressor = this.audioContext!.createDynamicsCompressor();
-    
+
     // Settings for gentle normalization
     compressor.threshold.value = -24;  // Start compressing at -24dB
     compressor.knee.value = 30;        // Soft knee for smooth transition
     compressor.ratio.value = 4;        // 4:1 compression ratio
     compressor.attack.value = 0.003;   // Fast attack (3ms)
     compressor.release.value = 0.25;   // Medium release (250ms)
-    
+
     return compressor;
   }
 
@@ -262,20 +270,20 @@ class AudioEngine {
     if (this.settings.monoAudio) {
       // Split stereo into L/R
       lastNode.connect(this.channelSplitter!);
-      
+
       // Mix both channels together (L+R)/2
       this.channelSplitter!.connect(this.monoGainL!, 0);
       this.channelSplitter!.connect(this.monoGainL!, 1);
       this.monoGainL!.gain.value = 0.5;
-      
+
       this.channelSplitter!.connect(this.monoGainR!, 0);
       this.channelSplitter!.connect(this.monoGainR!, 1);
       this.monoGainR!.gain.value = 0.5;
-      
+
       // Merge back to stereo (both channels get the same mono mix)
       this.monoGainL!.connect(this.channelMerger!, 0, 0);
       this.monoGainR!.connect(this.channelMerger!, 0, 1);
-      
+
       this.channelMerger!.connect(this.audioContext.destination);
     } else {
       // Direct to output
@@ -312,7 +320,7 @@ class AudioEngine {
     if (!this.settings.equalizerEnabled) return;
 
     const gains = this.settings.eqGains;
-    
+
     this.eqFilters.forEach((filter, i) => {
       if (gains[i] !== undefined) {
         filter.gain.value = gains[i];
@@ -371,13 +379,13 @@ class AudioEngine {
     if (!this.audio || this.crossfadeTriggered || this.isCrossfading) return;
 
     const timeRemaining = this.audio.duration - this.audio.currentTime;
-    
+
     // Check for crossfade
     if (this.settings.crossfadeEnabled) {
-      const threshold = this.settings.crossfadeDuration;
-      if (timeRemaining <= threshold && timeRemaining > 0.5) {
-        this.crossfadeTriggered = true;
-        this.callbacks.onCrossfadeStart?.();
+    const threshold = this.settings.crossfadeDuration;
+    if (timeRemaining <= threshold && timeRemaining > 0.5) {
+      this.crossfadeTriggered = true;
+      this.callbacks.onCrossfadeStart?.();
       }
     }
     // Check for gapless (trigger slightly before end)
@@ -425,7 +433,7 @@ class AudioEngine {
     try {
       const response = await fetch(nextSrc);
       if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
-      
+
       this.preloadedBlob = await response.blob();
       this.preloadedNextSrc = nextSrc;
       console.log('[AudioEngine] Preloaded next track');
@@ -443,7 +451,7 @@ class AudioEngine {
     if (!this.audio || !this.crossfadeAudio) return;
 
     await this.ensureAudioContext();
-    
+
     this.isCrossfading = true;
     const duration = this.settings.crossfadeEnabled ? this.settings.crossfadeDuration : 0.1;
     const currentAudio = this.audio;
@@ -461,8 +469,8 @@ class AudioEngine {
         this.preloadedBlob = null;
         this.preloadedNextSrc = null;
       } else {
-        const response = await fetch(nextSrc);
-        if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+      const response = await fetch(nextSrc);
+      if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
         blob = await response.blob();
       }
 
@@ -502,7 +510,7 @@ class AudioEngine {
         this.crossfadeInterval = setInterval(() => {
           step++;
           const progress = step / steps;
-          
+
           // Smooth easing curve for nicer crossfade
           const fadeOut = Math.cos(progress * Math.PI / 2); // 1 -> 0
           const fadeIn = Math.sin(progress * Math.PI / 2);  // 0 -> 1
@@ -636,9 +644,9 @@ class AudioEngine {
         this.preloadedBlob = null;
         this.preloadedNextSrc = null;
       } else {
-        const response = await fetch(src, { signal: this.abortController.signal });
-        if (!response.ok) {
-          throw new Error(`Failed to fetch audio: ${response.status}`);
+      const response = await fetch(src, { signal: this.abortController.signal });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audio: ${response.status}`);
         }
         blob = await response.blob();
       }
@@ -715,7 +723,7 @@ class AudioEngine {
 
   setVolume(volume: number): void {
     this.currentVolume = Math.max(0, Math.min(1, volume));
-    
+
     // Use gain node if available, otherwise fall back to audio element
     if (this.gainNode) {
       this.gainNode.gain.value = this.currentVolume;
@@ -761,11 +769,13 @@ class AudioEngine {
     if (this.audio) {
       this.audio.pause();
       this.audio.src = '';
+      this.audio.remove(); // Remove from DOM
     }
 
     if (this.crossfadeAudio) {
       this.crossfadeAudio.pause();
       this.crossfadeAudio.src = '';
+      this.crossfadeAudio.remove(); // Remove from DOM
     }
 
     if (this.currentBlobUrl) URL.revokeObjectURL(this.currentBlobUrl);

@@ -10,6 +10,9 @@ export {
   type TrackItem,
   type PlaylistTrackListProps,
   type PlaylistTrackItem,
+  type SortField,
+  type SortDirection,
+  type SortConfig,
 } from './TrackCollectionLayout';
 export { LikedCover } from './LikedCover';
 export { FollowingCover } from './FollowingCover';

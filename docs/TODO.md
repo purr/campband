@@ -57,12 +57,13 @@
 - ✅ Play next / previous
 - ✅ Remove from queue
 - ✅ Clear queue
-- ✅ Queue panel (slide-out)
-- [ ] Reorder queue (drag & drop)
+- ✅ Queue panel (slide-out with shuffle/repeat controls)
+- ✅ Reorder queue (drag & drop)
 
 ### Shuffle & Repeat
-- ✅ Shuffle mode
+- ✅ Shuffle mode (synced between player bar and queue panel)
 - ✅ Repeat modes (off, track, all)
+- ✅ Visual feedback in queue (dimmed tracks when looping single)
 
 ### Now Playing Bar
 - ✅ Album art display
@@ -178,9 +179,9 @@
 - ✅ Smooth transitions/animations (bidirectional)
 - ✅ Hover states
 - ✅ Collapsible sidebar (manual + auto-collapse on narrow screens)
-- ✅ Queue panel (slide-out, liquid glass)
-- ✅ Right-click context menus (tracks, albums, artists)
-- ✅ Redesigned sidebar (Following, Liked Songs, Playlists with collage covers)
+- ✅ Queue panel (slide-out, liquid glass, shuffle/repeat controls)
+- ✅ Right-click context menus (tracks, albums, artists, playlists, liked songs)
+- ✅ Redesigned sidebar (Following, Liked Songs sticky; Playlists with collage covers)
 - ✅ Grid/List view toggles (Following, Artist Discography)
 - ✅ External links redesigned (liquid glass pills)
 - ✅ Linkified URLs in bios/credits/about text
@@ -188,6 +189,8 @@
 - ✅ Volume popup redesigned (liquid glass via portal)
 - ✅ Progress bar smooth animation (requestAnimationFrame)
 - ✅ Playing indicator (animated equalizer bars) on all track covers
+- ✅ JavaScript smooth scrolling (useSmoothScroll hook with velocity + friction)
+- ✅ Rose Pine cursors and selection colors
 - [ ] Focus states (accessibility)
 - [ ] Full responsive design (mobile)
 - 🚧 Keyboard shortcuts (Spacebar play/pause done, more to come)
@@ -196,9 +199,11 @@
 - ✅ Settings page with sectioned design
 - ✅ Audio settings UI (crossfade, gapless playback, volume normalization, mono audio)
 - ✅ Equalizer with presets and custom 10-band EQ
-- ✅ Crossfade implementation (dual audio elements with fade)
+- ✅ Crossfade implementation (Web Audio API with cosine-eased fade)
 - ✅ Gapless playback (preloading next track)
-- ✅ Web Audio API integration (EQ filters)
+- ✅ Web Audio API integration (EQ filters, compressor, mono mix)
+- ✅ Volume normalization (DynamicsCompressorNode)
+- ✅ Mono audio (ChannelSplitter/Merger)
 - [ ] Cache settings
 - [ ] Theme customization
 - [ ] Import/Export library
@@ -237,6 +242,10 @@
 - **Backdrop-Filter Nesting**: CSS backdrop-filter doesn't work when nested inside another element with backdrop-filter - all popups and modals render via React Portal to document.body to ensure glass effects work correctly
 - **Firefox MV2**: Using Manifest V2 for Firefox compatibility - session storage not available, using storage.local instead
 
+## Extension Compatibility
+
+- **Auto-Stop Media**: Audio elements are appended to DOM (hidden) so other extensions like Auto-Stop can detect and control playback
+
 ## Recently Fixed
 - ✅ Progress bar resets to 0 on track change (requestAnimationFrame sync)
 - ✅ Clear queue preserves currently playing track
@@ -260,6 +269,31 @@
 - ✅ Rose-pine cursors and selection colors added to globals.css
 - ✅ Sidebar album context menu (right-click on liked albums)
 - ✅ Sidebar playlist context menu (right-click: play, edit, delete, queue)
+- ✅ Audio features fully implemented with Web Audio API (see below)
+- ✅ Crossfade slider UI simplified (no thumb dot, cleaner labels)
+- ✅ Toggle focus ring removed for cleaner UI
+- ✅ Sidebar collapse/expand animation smoothed (opacity + width transition)
+- ✅ Following & Liked Songs now sticky in sidebar (like Home/Search)
+- ✅ Liked Songs context menu (Play, Play Next, Add to Queue)
+- ✅ JavaScript smooth scrolling (useSmoothScroll hook with velocity + friction)
+- ✅ Audio elements appended to DOM for Auto-Stop Media extension compatibility
+- ✅ Queue panel shows shuffle/repeat mode buttons (synced with player bar)
+- ✅ Queue panel dims "Next Up" when single track loop is active
+- ✅ Shuffle button sync fixed (was using wrong store - playerStore vs queueStore)
+- ✅ Single track loop + crossfade edge case fixed (was desync'd - UI showed next track while audio looped)
+- ✅ Crossfade now works for looping tracks (smooth fade back to start)
+- ✅ Responsive track list columns (hide Added → Album → Duration as page narrows)
+- ✅ Sortable track list columns (click to sort by title, album, added, duration)
+- ✅ Duration column uses clock icon (permanent), other columns use text
+
+## Audio Engine (December 2024)
+Full Web Audio API implementation:
+- ✅ **Crossfade**: Smooth cosine-eased fade between tracks (default 4s)
+- ✅ **Volume Normalization**: DynamicsCompressorNode for consistent loudness
+- ✅ **Mono Audio**: ChannelSplitter/Merger for accessibility
+- ✅ **10-band Equalizer**: BiquadFilterNodes at standard frequencies (32Hz-16kHz)
+- ✅ **Gapless Playback**: Preloads next track, starts 300ms before current ends
+- ✅ **Loop Track Crossfade**: Crossfades back to start when looping single track
 
 ---
 

@@ -47,17 +47,17 @@ export function ReleaseGrid({ releases, viewMode = 'grid', bandInfo, onReleaseCl
 
   if (viewMode === 'list') {
     return (
-      <div className="space-y-1">
-        {releases.map((release) => (
-          <ReleaseListItem
-            key={`${release.itemType}-${release.itemId}`}
-            release={release}
-            onClick={() => onReleaseClick?.(release)}
-            onPlay={() => onReleasePlay?.(release)}
-            onContextMenu={(e) => handleContextMenu(e, release)}
-          />
-        ))}
-      </div>
+        <div className="space-y-1">
+          {releases.map((release) => (
+            <ReleaseListItem
+              key={`${release.itemType}-${release.itemId}`}
+              release={release}
+              onClick={() => onReleaseClick?.(release)}
+              onPlay={() => onReleasePlay?.(release)}
+              onContextMenu={(e) => handleContextMenu(e, release)}
+            />
+          ))}
+        </div>
     );
   }
 
@@ -69,7 +69,7 @@ export function ReleaseGrid({ releases, viewMode = 'grid', bandInfo, onReleaseCl
           release={release}
           onClick={() => onReleaseClick?.(release)}
           onPlay={() => onReleasePlay?.(release)}
-          onContextMenu={(e) => handleContextMenu(e, release)}
+            onContextMenu={(e) => handleContextMenu(e, release)}
         />
       ))}
     </div>

@@ -282,54 +282,54 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
         </button>
 
         {/* Play Next */}
-        <button
-          onClick={handlePlayNext}
+          <button
+            onClick={handlePlayNext}
           disabled={isLoading}
-          className={cn(
-            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
-            'text-sm text-left',
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+              'text-sm text-left',
             'text-text hover:bg-white/10',
-            'transition-colors duration-100',
+              'transition-colors duration-100',
             isLoading && 'opacity-60'
-          )}
-        >
-          {playingNext ? (
-            <>
-              <Check size={16} className="text-foam" />
-              <span className="text-foam">Playing next!</span>
-            </>
-          ) : (
-            <>
-              <ListPlus size={16} className="text-text/60" />
-              Play Next
-            </>
-          )}
-        </button>
+            )}
+          >
+            {playingNext ? (
+              <>
+                <Check size={16} className="text-foam" />
+                <span className="text-foam">Playing next!</span>
+              </>
+            ) : (
+              <>
+                <ListPlus size={16} className="text-text/60" />
+                Play Next
+              </>
+            )}
+          </button>
 
         {/* Add to Queue */}
-        <button
-          onClick={handleAddToQueue}
+          <button
+            onClick={handleAddToQueue}
           disabled={isLoading}
-          className={cn(
-            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
-            'text-sm text-left',
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+              'text-sm text-left',
             'text-text hover:bg-white/10',
-            'transition-colors duration-100',
+              'transition-colors duration-100',
             isLoading && 'opacity-60'
-          )}
-        >
-          {addedToQueue ? (
-            <>
-              <Check size={16} className="text-foam" />
-              <span className="text-foam">Added!</span>
-            </>
-          ) : (
-            <>
-              <ListEnd size={16} className="text-text/60" />
-              Add to Queue
-            </>
-          )}
-        </button>
+            )}
+          >
+            {addedToQueue ? (
+              <>
+                <Check size={16} className="text-foam" />
+                <span className="text-foam">Added!</span>
+              </>
+            ) : (
+              <>
+                <ListEnd size={16} className="text-text/60" />
+                Add to Queue
+              </>
+            )}
+          </button>
 
         {/* Divider */}
         <div className="my-1 border-t border-white/5" />

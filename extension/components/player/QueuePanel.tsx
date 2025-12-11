@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect } from 'react';
-import { X, Play, Trash2, ListX, GripVertical } from 'lucide-react';
+import { X, Play, Trash2, ListX, GripVertical, Repeat, Repeat1, Shuffle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
 import { IconButton, PlayingIndicator } from '@/components/ui';
 import { useQueueStore, usePlayerStore, useUIStore, useRouterStore } from '@/lib/store';
+import { useSmoothScroll } from '@/hooks';
 import { buildArtUrl, ImageSizes } from '@/types';
 
 export function QueuePanel() {
@@ -15,8 +16,10 @@ export function QueuePanel() {
     moveTrack,
     clearQueue,
     playTrackAt,
+    shuffle,
+    setShuffle,
   } = useQueueStore();
-  const { isPlaying } = usePlayerStore();
+  const { isPlaying, repeat, toggleRepeat } = usePlayerStore();
   const { navigate } = useRouterStore();
 
   // Scroll state for fade indicators
@@ -24,6 +27,9 @@ export function QueuePanel() {
   const panelRef = useRef<HTMLDivElement>(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
+
+  // Smooth scroll for queue list
+  useSmoothScroll(scrollRef);
 
   // Drag state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -129,7 +135,45 @@ export function QueuePanel() {
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-        <h2 className="text-sm font-semibold text-text">Queue</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-semibold text-text">Queue</h2>
+
+          {/* Playback Mode Indicators */}
+          <div className="flex items-center gap-1">
+            {/* Shuffle Button */}
+            <button
+              onClick={() => setShuffle(!shuffle)}
+              className={cn(
+                'p-1.5 rounded-md transition-all duration-200',
+                shuffle
+                  ? 'text-rose bg-rose/15 hover:bg-rose/25'
+                  : 'text-text/40 hover:text-text/70 hover:bg-white/5'
+              )}
+              title={shuffle ? 'Shuffle on' : 'Shuffle off'}
+            >
+              <Shuffle size={14} />
+            </button>
+
+            {/* Repeat Button */}
+            <button
+              onClick={toggleRepeat}
+              className={cn(
+                'p-1.5 rounded-md transition-all duration-200',
+                repeat !== 'off'
+                  ? 'text-rose bg-rose/15 hover:bg-rose/25'
+                  : 'text-text/40 hover:text-text/70 hover:bg-white/5'
+              )}
+              title={
+                repeat === 'off' ? 'Repeat off' :
+                repeat === 'all' ? 'Repeat all' :
+                'Repeat track'
+              }
+            >
+              {repeat === 'track' ? <Repeat1 size={14} /> : <Repeat size={14} />}
+            </button>
+          </div>
+        </div>
+
         <div className="flex items-center gap-1">
           {queue.length > 0 && (
             <button
@@ -150,6 +194,7 @@ export function QueuePanel() {
         </div>
       </div>
 
+
       {/* Content */}
       <div className="relative">
         {/* Top fade - transparent gradient */}
@@ -166,7 +211,7 @@ export function QueuePanel() {
         <div
           ref={scrollRef}
           onScroll={updateScrollState}
-          className="overflow-y-auto overscroll-contain"
+          className="overflow-y-auto overscroll-contain scroll-smooth scrollbar-thin"
           style={{ maxHeight: 'calc(70vh - 120px)' }}
         >
           {queue.length === 0 ? (
@@ -181,7 +226,7 @@ export function QueuePanel() {
               {nowPlaying && (
                 <div className="px-3 py-1">
                   <h3 className="text-[10px] font-medium text-text/60 uppercase tracking-wider mb-1.5 px-1">
-                    Now Playing
+                    Now Playing {repeat === 'track' && <span className="text-rose">· Looping</span>}
                   </h3>
                   <QueueTrackItem
                     track={nowPlaying}
@@ -198,9 +243,12 @@ export function QueuePanel() {
                 </div>
               )}
 
-              {/* Next Up */}
+              {/* Next Up - dimmed when looping single track */}
               {nextUp.length > 0 && (
-                <div className="px-3 py-1 mt-1">
+                <div className={cn(
+                  'px-3 py-1 mt-1 transition-opacity duration-300',
+                  repeat === 'track' && 'opacity-30'
+                )}>
                   <h3 className="text-[10px] font-medium text-text/60 uppercase tracking-wider mb-1.5 px-1">
                     Next Up ({nextUp.length})
                   </h3>
@@ -238,7 +286,9 @@ export function QueuePanel() {
               {/* Empty next up state */}
               {nextUp.length === 0 && nowPlaying && (
                 <div className="px-3 py-4 text-center">
-                  <p className="text-xs text-text/60">No more tracks in queue</p>
+                  <p className="text-xs text-text/60">
+                    {repeat === 'track' ? 'Looping current track' : 'No more tracks in queue'}
+                  </p>
                 </div>
               )}
             </div>

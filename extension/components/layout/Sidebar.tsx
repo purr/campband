@@ -5,6 +5,7 @@ import { useUIStore, useRouterStore, useSearchStore, usePlaylistStore, useLibrar
 import { buildArtUrl, ImageSizes } from '@/types';
 import { LikedCover, FollowingCover, PlaylistCover } from '@/components/shared';
 import { useContextMenu } from '@/components/ui';
+import { useSmoothScroll } from '@/hooks';
 import { LAYOUT_CLASSES } from '@/lib/constants/layout';
 
 interface NavItem {
@@ -27,6 +28,9 @@ export function Sidebar() {
 
   // Context menu hook
   const { openAlbumMenu, openPlaylistMenu, openLikedSongsMenu } = useContextMenu();
+
+  // Smooth scroll for sidebar list
+  useSmoothScroll(scrollRef);
 
   // Initialize stores
   useEffect(() => {
@@ -183,23 +187,8 @@ export function Sidebar() {
       {/* Divider */}
       <div className="mx-3 border-t border-white/5" />
 
-      {/* Collections Section - Following, Liked Songs, Playlists, and Liked Albums */}
-      <div className="relative flex-1 min-h-0">
-        {/* Top Shadow */}
-        <div
-          className={cn(
-            'absolute top-0 left-0 right-0 h-6 z-10 pointer-events-none',
-            'bg-gradient-to-b from-surface/80 to-transparent',
-            'transition-opacity duration-200',
-            showTopShadow ? 'opacity-100' : 'opacity-0'
-          )}
-        />
-
-        {/* Scrollable List */}
-        <div
-          ref={scrollRef}
-          className="h-full overflow-y-auto px-2 py-1 scrollbar-thin"
-        >
+      {/* Sticky Library Section - Following & Liked Songs */}
+      <nav className="px-2 py-2 space-y-0.5 flex-shrink-0">
           {/* Following - Artists */}
           <CollectionItem
             name="Following"
@@ -220,14 +209,30 @@ export function Sidebar() {
             isActive={isRouteActive('liked')}
             isCollapsed={sidebarCollapsed}
             onClick={() => handleNavigation('liked')}
-            onContextMenu={openLikedSongsMenu}
+          onContextMenu={openLikedSongsMenu}
           />
+      </nav>
 
           {/* Divider */}
-          {!sidebarCollapsed && (
-            <div className="mx-2 my-2 border-t border-white/5" />
-          )}
+      <div className="mx-3 border-t border-white/5" />
 
+      {/* Scrollable Collections - Playlists and Liked Albums */}
+      <div className="relative flex-1 min-h-0">
+        {/* Top Shadow */}
+        <div
+          className={cn(
+            'absolute top-0 left-0 right-0 h-6 z-10 pointer-events-none',
+            'bg-gradient-to-b from-surface/80 to-transparent',
+            'transition-opacity duration-200',
+            showTopShadow ? 'opacity-100' : 'opacity-0'
+          )}
+        />
+
+        {/* Scrollable List */}
+        <div
+          ref={scrollRef}
+          className="h-full overflow-y-auto px-2 py-1 scrollbar-thin scroll-smooth"
+        >
           {/* Create Playlist Button */}
           <button
             onClick={handleCreatePlaylist}
@@ -481,20 +486,20 @@ function CollectionItem({
         )}
       >
         <span className="font-medium text-sm truncate block whitespace-nowrap">{name}</span>
-        {/* Subtitle */}
-        {type === 'following' && trackCount !== undefined && (
+          {/* Subtitle */}
+          {type === 'following' && trackCount !== undefined && (
           <p className="text-xs text-text/60 whitespace-nowrap">{trackCount} artists</p>
-        )}
-        {type === 'liked' && trackCount !== undefined && (
+          )}
+          {type === 'liked' && trackCount !== undefined && (
           <p className="text-xs text-text/60 whitespace-nowrap">{trackCount} songs</p>
-        )}
-        {type === 'album' && artist && (
+          )}
+          {type === 'album' && artist && (
           <p className="text-xs text-text/60 truncate whitespace-nowrap">{artist}</p>
-        )}
-        {type === 'playlist' && (
+          )}
+          {type === 'playlist' && (
           <p className="text-xs text-text/60 whitespace-nowrap">Playlist</p>
-        )}
-      </div>
+          )}
+        </div>
     </button>
   );
 }

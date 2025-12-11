@@ -1,8 +1,9 @@
+import { useRef } from 'react';
 import { Sidebar } from './Sidebar';
 import { PlayerBar } from './PlayerBar';
 import { QueuePanel } from '@/components/player';
 import { PlaylistModal, ContextMenuProvider, ConfirmProvider, GlobalContextMenu } from '@/components/ui';
-import { useAudioPlayer } from '@/hooks/useAudioPlayer';
+import { useAudioPlayer, useSmoothScroll } from '@/hooks';
 import { LAYOUT_CLASSES } from '@/lib/constants/layout';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +14,10 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   // Initialize audio player and get seek function
   const { seek } = useAudioPlayer();
+
+  // Smooth scroll for main content
+  const mainContentRef = useRef<HTMLElement>(null);
+  useSmoothScroll(mainContentRef);
 
   return (
     <ConfirmProvider>
@@ -25,7 +30,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Scrollable content - isolate creates stacking context */}
         {/* Bottom padding makes room for player bar overlay */}
-        <main className={cn('flex-1 overflow-y-auto isolate', LAYOUT_CLASSES.MAIN_CONTENT_PADDING)}>
+        <main
+          ref={mainContentRef}
+          className={cn('flex-1 overflow-y-auto isolate', LAYOUT_CLASSES.MAIN_CONTENT_PADDING)}
+        >
           {children}
         </main>
 
@@ -40,7 +48,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
         {/* Global Modals */}
         <PlaylistModal />
-        
+
         {/* Global Context Menu */}
         <GlobalContextMenu />
     </div>

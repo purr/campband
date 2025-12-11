@@ -51,6 +51,7 @@ html {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -166,6 +167,58 @@ mark, .highlight {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-highlight-med) var(--color-surface);
+}
+
+/* ============================================
+   SMOOTH SCROLLING - Global
+   ============================================ */
+
+/* Enable smooth scrolling on all scrollable elements */
+*,
+*::before,
+*::after {
+  scroll-behavior: smooth;
+}
+
+/* Utility class for thin scrollbar + smooth scroll */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-highlight-med) transparent;
+  scroll-behavior: smooth;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--color-highlight-med);
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--color-highlight-high);
+}
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+/* Smooth scroll utility */
+.scroll-smooth {
+  scroll-behavior: smooth;
 }
 
 /* ============================================

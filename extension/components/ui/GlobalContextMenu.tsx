@@ -1029,19 +1029,45 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, isVisible, setIs
     return playlist.trackIds.includes(track.id);
   };
 
+  // Position the picker - runs after render to measure actual height
   useEffect(() => {
-    const pickerWidth = 220;
-    let x = parentRect.right + 4;
-    let side: 'right' | 'left' = 'right';
+    const updatePosition = () => {
+      const pickerWidth = 220;
+      const viewportWidth = window.innerWidth;
 
-    if (x + pickerWidth > window.innerWidth - 16) {
-      x = parentRect.left - pickerWidth - 4;
-      side = 'left';
-    }
+      // Horizontal positioning
+      let x = parentRect.right + 4;
+      let side: 'right' | 'left' = 'right';
 
-    setPosition({ x, y: parentRect.top });
-    setSubPosition(side);
-  }, [parentRect]);
+      if (x + pickerWidth > viewportWidth - 8) {
+        x = parentRect.left - pickerWidth - 4;
+        side = 'left';
+      }
+
+      // Get actual picker height after render (or estimate)
+      const pickerHeight = pickerRef.current?.offsetHeight || 300;
+
+      // Vertical positioning - align bottom of picker with bottom of parent button
+      // This keeps the picker close to the "Add to Playlist" item
+      let y = parentRect.bottom - pickerHeight;
+
+      // Make sure it doesn't go above the viewport
+      y = Math.max(8, y);
+
+      setPosition({ x, y });
+      setSubPosition(side);
+    };
+
+    // Initial position
+    updatePosition();
+
+    // Re-measure after render to get accurate height
+    const timer = requestAnimationFrame(() => {
+      updatePosition();
+    });
+
+    return () => cancelAnimationFrame(timer);
+  }, [parentRect, playlists.length]);
 
   useEffect(() => {
     const timer = requestAnimationFrame(() => {
