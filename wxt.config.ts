@@ -45,11 +45,6 @@ export default defineConfig({
       gecko: {
         id: 'campband@browser.extension',
         strict_min_version: '109.0',
-        // Required for Firefox extensions - declares no data collection
-        data_collection_permissions: {
-          required: false,
-          optional: false,
-        },
       },
     },
   },

@@ -13,20 +13,14 @@ import { App } from '../app/App';
 import globalsCss from '@/styles/globals.css?inline';
 
 // Configuration: which hosts to inject on
-// Add localhost for development
 const ALLOWED_HOSTS = [
   'purr.github.io',
-  'localhost',
-  '127.0.0.1',
 ];
 
 export default defineContentScript({
   matches: [
-    // GitHub Pages
-    '*://purr.github.io/campband/*',
-    // Development (localhost with port)
-    '*://localhost:*/campband/*',
-    '*://127.0.0.1:*/campband/*',
+    // GitHub Pages host
+    'https://purr.github.io/campband/*',
   ],
   runAt: 'document_end',
   // Don't use cssInjectionMode - we'll inject CSS manually into the page
