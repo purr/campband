@@ -124,12 +124,19 @@ class AudioEngine {
    */
   private async ensureAudioContext(): Promise<void> {
     if (!this.audioContext) {
+      // Create AudioContext - it will be in 'suspended' state until user gesture
       this.audioContext = new AudioContext();
       this.setupAudioGraph();
     }
 
+    // Resume if suspended (this requires a user gesture)
     if (this.audioContext.state === 'suspended') {
-      await this.audioContext.resume();
+      try {
+        await this.audioContext.resume();
+      } catch (error) {
+        // If resume fails (no user gesture), that's okay - it will resume on next play attempt
+        console.log('[AudioEngine] AudioContext resume deferred (awaiting user gesture)');
+      }
     }
   }
 
@@ -594,7 +601,8 @@ class AudioEngine {
       throw new Error('Failed to initialize audio');
     }
 
-    await this.ensureAudioContext();
+    // Don't create AudioContext on load - wait until we actually need to play
+    // This prevents the "AudioContext was prevented from starting" warning
 
     // Set up listeners if not already done
     if (!this.audio.onplay) {
@@ -668,6 +676,8 @@ class AudioEngine {
   async play(): Promise<void> {
     if (!this.audio) return;
 
+    // Ensure AudioContext is created and resumed before playing
+    // This is called in response to a user gesture, so it's safe
     await this.ensureAudioContext();
 
     // Don't try to play without a valid source loaded
