@@ -16,6 +16,7 @@ import type {
   ItemType,
 } from '@/types';
 import { extractArtIdFromUrl, extractImageIdFromUrl, buildArtUrl, ImageSizes } from '@/types';
+import { proxyFetch } from './fetchProxy';
 
 // ============================================
 // Constants
@@ -46,12 +47,12 @@ async function fetchHtml(url: string): Promise<string> {
 
 /**
  * Fetch HTML and track redirects (useful for detecting single-track artists)
- * Browser fetch follows redirects automatically, but we can detect them via response.url
+ * Uses proxyFetch to work in both extension and content script contexts
  */
 async function fetchHtmlWithRedirect(url: string): Promise<FetchHtmlResult> {
   console.log('[Scraper] Fetching:', url);
 
-  const response = await fetch(url);
+  const response = await proxyFetch(url);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch ${url}: ${response.status}`);

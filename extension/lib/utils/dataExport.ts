@@ -163,6 +163,100 @@ function validateImportData(data: unknown): data is ExportedData {
 }
 
 /**
+ * Convert date strings back to Date objects
+ * JSON.parse converts Date objects to ISO strings, we need to convert them back
+ */
+function parseDate(value: unknown): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') return new Date(value);
+  if (typeof value === 'number') return new Date(value);
+  return new Date(); // Fallback to now
+}
+
+/**
+ * Validate and fix a track object, converting date strings to Date objects
+ */
+function validateTrack(track: unknown): FavoriteTrack | null {
+  if (!track || typeof track !== 'object') return null;
+  const t = track as Record<string, unknown>;
+
+  // Required fields
+  if (typeof t.id !== 'number') return null;
+  if (typeof t.title !== 'string') return null;
+  if (typeof t.artist !== 'string') return null;
+  if (typeof t.bandId !== 'number') return null;
+  if (typeof t.duration !== 'number') return null;
+
+  return {
+    id: t.id,
+    title: t.title,
+    artist: t.artist,
+    albumTitle: typeof t.albumTitle === 'string' ? t.albumTitle : undefined,
+    albumId: typeof t.albumId === 'number' ? t.albumId : undefined,
+    albumUrl: typeof t.albumUrl === 'string' ? t.albumUrl : undefined,
+    artId: typeof t.artId === 'number' ? t.artId : undefined,
+    bandId: t.bandId,
+    bandName: typeof t.bandName === 'string' ? t.bandName : undefined,
+    bandUrl: typeof t.bandUrl === 'string' ? t.bandUrl : undefined,
+    duration: t.duration,
+    streamUrl: typeof t.streamUrl === 'string' ? t.streamUrl : undefined,
+    addedAt: parseDate(t.addedAt),
+    playCount: typeof t.playCount === 'number' ? t.playCount : undefined,
+    lastPlayedAt: t.lastPlayedAt ? parseDate(t.lastPlayedAt) : undefined,
+  };
+}
+
+/**
+ * Validate and fix an album object
+ */
+function validateAlbum(album: unknown): FavoriteAlbum | null {
+  if (!album || typeof album !== 'object') return null;
+  const a = album as Record<string, unknown>;
+
+  // Required fields
+  if (typeof a.id !== 'number') return null;
+  if (typeof a.title !== 'string') return null;
+  if (typeof a.artist !== 'string') return null;
+  if (typeof a.url !== 'string') return null;
+  if (typeof a.artId !== 'number') return null;
+  if (typeof a.bandId !== 'number') return null;
+
+  return {
+    id: a.id,
+    title: a.title,
+    artist: a.artist,
+    url: a.url,
+    artId: a.artId,
+    bandId: a.bandId,
+    bandUrl: typeof a.bandUrl === 'string' ? a.bandUrl : undefined,
+    releaseDate: typeof a.releaseDate === 'string' ? a.releaseDate : undefined,
+    addedAt: parseDate(a.addedAt),
+  };
+}
+
+/**
+ * Validate and fix an artist object
+ */
+function validateArtist(artist: unknown): FavoriteArtist | null {
+  if (!artist || typeof artist !== 'object') return null;
+  const a = artist as Record<string, unknown>;
+
+  // Required fields
+  if (typeof a.id !== 'number') return null;
+  if (typeof a.name !== 'string') return null;
+  if (typeof a.url !== 'string') return null;
+
+  return {
+    id: a.id,
+    name: a.name,
+    url: a.url,
+    imageId: typeof a.imageId === 'number' ? a.imageId : undefined,
+    location: typeof a.location === 'string' ? a.location : undefined,
+    addedAt: parseDate(a.addedAt),
+  };
+}
+
+/**
  * Import data from JSON file (ADD to existing data, not replace)
  */
 export async function importData(
@@ -193,15 +287,20 @@ export async function importData(
     if (data.likedTracks && data.likedTracks.length > 0) {
       onProgress?.(`Importing ${data.likedTracks.length} liked tracks...`);
 
-      for (const track of data.likedTracks) {
+      for (const rawTrack of data.likedTracks) {
         try {
+          const track = validateTrack(rawTrack);
+          if (!track) {
+            result.errors.push(`Invalid track data: ${(rawTrack as { title?: string })?.title || 'unknown'}`);
+            continue;
+          }
           const existing = await db.favoriteTracks.get(track.id);
           if (!existing) {
             await db.favoriteTracks.add(track);
             result.imported.tracks++;
           }
         } catch (e) {
-          result.errors.push(`Failed to import track: ${track.title}`);
+          result.errors.push(`Failed to import track: ${(rawTrack as { title?: string })?.title || 'unknown'}`);
         }
       }
     }
@@ -210,15 +309,20 @@ export async function importData(
     if (data.likedAlbums && data.likedAlbums.length > 0) {
       onProgress?.(`Importing ${data.likedAlbums.length} liked albums...`);
 
-      for (const album of data.likedAlbums) {
+      for (const rawAlbum of data.likedAlbums) {
         try {
+          const album = validateAlbum(rawAlbum);
+          if (!album) {
+            result.errors.push(`Invalid album data: ${(rawAlbum as { title?: string })?.title || 'unknown'}`);
+            continue;
+          }
           const existing = await db.favoriteAlbums.get(album.id);
           if (!existing) {
             await db.favoriteAlbums.add(album);
             result.imported.albums++;
           }
         } catch (e) {
-          result.errors.push(`Failed to import album: ${album.title}`);
+          result.errors.push(`Failed to import album: ${(rawAlbum as { title?: string })?.title || 'unknown'}`);
         }
       }
     }
@@ -227,15 +331,20 @@ export async function importData(
     if (data.following && data.following.length > 0) {
       onProgress?.(`Importing ${data.following.length} followed artists...`);
 
-      for (const artist of data.following) {
+      for (const rawArtist of data.following) {
         try {
+          const artist = validateArtist(rawArtist);
+          if (!artist) {
+            result.errors.push(`Invalid artist data: ${(rawArtist as { name?: string })?.name || 'unknown'}`);
+            continue;
+          }
           const existing = await db.favoriteArtists.get(artist.id);
           if (!existing) {
             await db.favoriteArtists.add(artist);
             result.imported.artists++;
           }
         } catch (e) {
-          result.errors.push(`Failed to import artist: ${artist.name}`);
+          result.errors.push(`Failed to import artist: ${(rawArtist as { name?: string })?.name || 'unknown'}`);
         }
       }
     }
@@ -247,11 +356,24 @@ export async function importData(
 
       for (const playlist of data.playlists) {
         try {
+          // Validate playlist structure
+          if (!playlist.name || typeof playlist.name !== 'string') {
+            result.errors.push('Invalid playlist: missing name');
+            continue;
+          }
+          if (!Array.isArray(playlist.trackIds)) {
+            result.errors.push(`Invalid playlist: ${playlist.name} - missing trackIds`);
+            continue;
+          }
+
           // First, ensure all tracks exist in favoriteTracks
-          for (const track of playlist.tracks) {
-            const existingTrack = await db.favoriteTracks.get(track.id);
-            if (!existingTrack) {
-              await db.favoriteTracks.add(track);
+          for (const rawTrack of playlist.tracks || []) {
+            const track = validateTrack(rawTrack);
+            if (track) {
+              const existingTrack = await db.favoriteTracks.get(track.id);
+              if (!existingTrack) {
+                await db.favoriteTracks.add(track);
+              }
             }
           }
 
@@ -285,8 +407,8 @@ export async function importData(
               description: playlist.description,
               coverImage: playlist.coverImage,
               trackIds: playlist.trackIds,
-              createdAt: new Date(playlist.createdAt),
-              updatedAt: new Date(playlist.updatedAt),
+              createdAt: parseDate(playlist.createdAt),
+              updatedAt: parseDate(playlist.updatedAt),
             });
 
             // Add to playlistTracks
@@ -307,8 +429,8 @@ export async function importData(
               description: playlist.description,
               coverImage: playlist.coverImage,
               trackIds: playlist.trackIds,
-              createdAt: new Date(playlist.createdAt),
-              updatedAt: new Date(playlist.updatedAt),
+              createdAt: parseDate(playlist.createdAt),
+              updatedAt: parseDate(playlist.updatedAt),
             });
 
             // Add to playlistTracks

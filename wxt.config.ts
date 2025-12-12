@@ -16,6 +16,8 @@ export default defineConfig({
       'https://bandcamp.com/*',
       // Streaming servers (t1-t4.bcbits.com)
       '*://*.bcbits.com/*',
+      // GitHub Pages host for the app
+      'https://purr.github.io/*',
     ],
 
     // Extension icons

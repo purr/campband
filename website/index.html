@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CampBand</title>
+  <meta name="theme-color" content="#191724" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <style>
+    :root {
+      --base: #191724;
+      --surface: #1f1d2e;
+      --text: #e0def4;
+      --muted: #6e6a86;
+      --rose: #ebbcba;
+      --iris: #c4a7e7;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--base);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    body.campband-active #install-landing { display: none !important; }
+    body.campband-active #campband-root { display: block; min-height: 100vh; }
+    #campband-root { display: none; }
+    #install-landing {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      gap: 1.5rem;
+    }
+    .logo { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+    .logo img { width: 48px; height: 48px; }
+    .logo span { font-size: 2rem; font-weight: 600; }
+    h1 { font-size: 1.5rem; font-weight: 400; color: var(--muted); }
+    .install-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--base);
+      background: linear-gradient(135deg, var(--rose), var(--iris));
+      border: none;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .install-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(235, 188, 186, 0.3);
+    }
+    .footer { position: fixed; bottom: 1rem; color: var(--muted); font-size: 0.875rem; }
+    .footer a { color: var(--rose); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div id="install-landing">
+    <div class="logo">
+      <img src="./icon.svg" alt="" />
+      <span>CampBand</span>
+    </div>
+    <h1>A modern Bandcamp client for Firefox</h1>
+    <a href="https://addons.mozilla.org/firefox/addon/campband/" class="install-btn">
+      Install Extension
+    </a>
+    <p class="footer">
+      <a href="https://github.com/purr/campband">GitHub</a>
+    </p>
+  </div>
+  <div id="campband-root"></div>
+</body>
+</html>
+
