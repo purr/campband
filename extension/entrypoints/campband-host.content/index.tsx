@@ -22,17 +22,11 @@ const ALLOWED_HOSTS = [
 
 export default defineContentScript({
   matches: [
-    // GitHub Pages (with and without trailing slash)
-    '*://purr.github.io/campband',
-    '*://purr.github.io/campband/',
+    // GitHub Pages
     '*://purr.github.io/campband/*',
-    // Development
-    '*://localhost/campband',
-    '*://localhost/campband/',
-    '*://localhost/campband/*',
-    '*://localhost:*/campband',
-    '*://localhost:*/campband/',
+    // Development (localhost with port)
     '*://localhost:*/campband/*',
+    '*://127.0.0.1:*/campband/*',
   ],
   runAt: 'document_end',
   // Don't use cssInjectionMode - we'll inject CSS manually into the page
