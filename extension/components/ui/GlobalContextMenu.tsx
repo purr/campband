@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { cn, toPlayableTrack, getMenuState, closeContextMenu, scheduleCloseFromMousedown, cancelPendingClose, subscribeToContextMenu } from '@/lib/utils';
 import { usePlaylistStore, useQueueStore, useUIStore, useLibraryStore, useSettingsStore, usePlayerStore, useArtistStore } from '@/lib/store';
+import { fetchReleasePage } from '@/lib/api';
 import { PlaylistCover } from '@/components/shared';
 import { useUnlikeConfirm } from './ConfirmProvider';
 import type { Playlist } from '@/lib/db';
@@ -329,7 +330,6 @@ function AlbumMenuContent({ album }: { album: AlbumData }) {
     if (album.tracks && album.tracks.length > 0) {
       return album.tracks.filter(t => t.streamUrl) as Track[];
     }
-    const { fetchReleasePage } = await import('@/lib/api');
     const releaseData = await fetchReleasePage(album.url);
     return releaseData.tracks.filter(t => t.streamUrl);
   };

@@ -3,7 +3,8 @@ import { Sidebar } from './Sidebar';
 import { PlayerBar } from './PlayerBar';
 import { QueuePanel } from '@/components/player';
 import { PlaylistModal, ContextMenuProvider, ConfirmProvider, GlobalContextMenu } from '@/components/ui';
-import { useAudioPlayer, useSmoothScroll } from '@/hooks';
+import { useAudioPlayer } from '@/hooks/useAudioPlayer';
+import { useSmoothScroll } from '@/hooks/useSmoothScroll';
 import { LAYOUT_CLASSES } from '@/lib/constants/layout';
 import { cn } from '@/lib/utils';
 

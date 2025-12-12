@@ -51,5 +51,9 @@ export default defineConfig({
 
   vite: () => ({
     plugins: [tailwindcss()],
+    build: {
+      // Suppress chunk size warning - the app chunk is large but expected
+      chunkSizeWarningLimit: 700,
+    },
   }),
 });

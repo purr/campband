@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
 import { IconButton, PlayingIndicator } from '@/components/ui';
 import { useQueueStore, usePlayerStore, useUIStore, useRouterStore } from '@/lib/store';
-import { useSmoothScroll } from '@/hooks';
+import { useSmoothScroll } from '@/hooks/useSmoothScroll';
 import { buildArtUrl, ImageSizes } from '@/types';
 
 export function QueuePanel() {

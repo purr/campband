@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Heart, Link, Check, ExternalLink, ListPlus, ListEnd, Play, Loader2 } from 'lucide-react';
 import { cn, registerContextMenu, unregisterContextMenu, notifyMenuClosed, notifyMenuOpening, scheduleCloseFromMousedown } from '@/lib/utils';
 import { useLibraryStore, useQueueStore, usePlayerStore, useSettingsStore } from '@/lib/store';
+import { fetchReleasePage } from '@/lib/api';
 import { useUnlikeConfirm } from './ConfirmProvider';
 import type { Album, Track } from '@/types';
 
@@ -172,7 +173,6 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
     }
 
     // Otherwise fetch from the album URL
-    const { fetchReleasePage } = await import('@/lib/api');
     const releaseData = await fetchReleasePage(album.url);
     return releaseData.tracks.filter(t => t.streamUrl);
   };

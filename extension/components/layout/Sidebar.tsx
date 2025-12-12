@@ -5,7 +5,7 @@ import { useUIStore, useRouterStore, useSearchStore, usePlaylistStore, useLibrar
 import { buildArtUrl, ImageSizes } from '@/types';
 import { LikedCover, FollowingCover, PlaylistCover } from '@/components/shared';
 import { useContextMenu } from '@/components/ui';
-import { useSmoothScroll } from '@/hooks';
+import { useSmoothScroll } from '@/hooks/useSmoothScroll';
 import { LAYOUT_CLASSES } from '@/lib/constants/layout';
 
 interface NavItem {
@@ -158,7 +158,7 @@ export function Sidebar() {
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-love/20"
         >
-          <img src="/icon/icon.svg" alt="CampBand" className="w-full h-full" />
+          <img src={browser.runtime.getURL('/icon/icon.svg')} alt="CampBand" className="w-full h-full" />
         </button>
         <span
           className={cn(
