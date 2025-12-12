@@ -14,7 +14,7 @@ import {
   ListMusic,
   Loader2,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getDisplayTitle } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
 import { usePlayerStore, useQueueStore, useUIStore, useRouterStore, useLibraryStore, useSettingsStore } from '@/lib/store';
 import { IconButton, Slider, HeartButton, useUnlikeConfirm, useContextMenu } from '@/components/ui';
@@ -85,16 +85,38 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
     onVolumeChange(parseFloat(e.target.value) / 100);
   };
 
-  // Handle scroll wheel to change volume
-  const handleWheel = (e: React.WheelEvent) => {
+  // Handle scroll wheel to change volume (non-passive to allow preventDefault)
+  useEffect(() => {
+    const container = containerRef.current;
+    const popup = popupRef.current;
+
+    const handleWheel = (e: WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -5 : 5; // Scroll down = decrease, scroll up = increase
     const newVolume = Math.max(0, Math.min(100, displayVolume + delta));
     onVolumeChange(newVolume / 100);
   };
 
+    // Must use { passive: false } to allow preventDefault on wheel events
+    if (container) {
+      container.addEventListener('wheel', handleWheel, { passive: false });
+    }
+    if (popup) {
+      popup.addEventListener('wheel', handleWheel, { passive: false });
+    }
+
+    return () => {
+      if (container) {
+        container.removeEventListener('wheel', handleWheel);
+      }
+      if (popup) {
+        popup.removeEventListener('wheel', handleWheel);
+      }
+    };
+  }, [displayVolume, onVolumeChange, isOpen]);
+
   return (
-    <div ref={containerRef} className="relative" onWheel={handleWheel}>
+    <div ref={containerRef} className="relative">
       {/* Expanded view - shown on wider screens */}
       <div className="hidden lg:flex items-center gap-2">
         <IconButton
@@ -149,7 +171,6 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
               bottom: popupPosition.bottom,
               right: popupPosition.right,
             }}
-            onWheel={handleWheel}
           >
             {/* Vertical slider with volume display */}
             <div className="flex flex-col items-center gap-2">
@@ -368,7 +389,7 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
   };
 
   return (
-    <div className="relative liquid-glass-bar border-t border-white/5">
+    <div className="relative shrink-0 liquid-glass-bar border-t border-white/5">
       {/* Progress bar - full width at top, grows on hover */}
       <div
         className={cn(
@@ -398,7 +419,7 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
                 isFavorite={isTrackFavorite}
                 onClick={handleToggleFavorite}
                 size="sm"
-                className="flex-shrink-0"
+                className="shrink-0"
               />
 
               {/* Album art */}
@@ -406,7 +427,7 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
               onClick={handleArtClick}
               onContextMenu={handleTrackContextMenu}
               className={cn(
-                  'w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-highlight-med shadow-lg relative',
+                  'w-12 h-12 rounded-md overflow-hidden shrink-0 bg-highlight-med shadow-lg relative',
                 'transition-transform duration-200 hover:scale-105 cursor-pointer'
               )}
             >
@@ -440,7 +461,7 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
                   currentTrack.albumUrl && 'hover:text-rose  cursor-pointer'
                 )}
               >
-                {currentTrack.title}
+                {getDisplayTitle(currentTrack)}
               </button>
               <button
                 onClick={handleArtistClick}

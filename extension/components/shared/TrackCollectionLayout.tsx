@@ -1,6 +1,29 @@
+/**
+ * TrackCollectionLayout - Shared components for displaying track collections
+ *
+ * This file provides reusable components for track lists used across:
+ * - Album pages
+ * - Playlist pages
+ * - Liked songs page
+ * - Library/history pages
+ *
+ * Components:
+ * - CollectionHeader: Header with art, title, actions (play all, shuffle, etc.)
+ * - TrackList: Sortable track list for albums/liked songs
+ * - PlaylistTrackList: Reorderable track list for playlists with drag-drop
+ * - *Skeleton: Loading state variants
+ *
+ * Features:
+ * - Responsive columns (hide columns on narrow widths)
+ * - Sortable headers (click column to sort)
+ * - Context menus (right-click tracks)
+ * - Playing indicator (shows which track is playing)
+ * - Drag-drop reordering (playlists only)
+ */
+
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Play, Shuffle, Heart, ListPlus, Check, ExternalLink, Pencil, Trash2, Calendar, Clock, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
-import { cn, useConfirmationState, toPlayableTrack } from '@/lib/utils';
+import { cn, useConfirmationState, toPlayableTrack, getDisplayTitle } from '@/lib/utils';
 import { formatTime, formatSmartDate } from '@/lib/utils/format';
 import { Button, ImageBackdrop, Skeleton, PlayingIndicator, HeartButton, AddToQueueButton, useUnlikeConfirm, useContextMenu } from '@/components/ui';
 import { useLibraryStore, useQueueStore, useRouterStore, useSettingsStore } from '@/lib/store';
@@ -98,8 +121,8 @@ export interface CollectionHeaderProps {
   description?: string;
   /** Release date (for albums) */
   releaseDate?: string;
-  /** Created date (for playlists) */
-  createdAt?: Date;
+  /** Created date (for playlists) - Unix timestamp (ms) */
+  createdAt?: number;
   /** Track count */
   trackCount: number;
   /** Number of hidden/unlisted tracks */
@@ -160,6 +183,7 @@ export function CollectionHeader({
   };
 
   // Format release date or created date
+  // Note: createdAt might be a Date, string, or number depending on source
   const formattedDate = releaseDate
     ? new Date(releaseDate).toLocaleDateString('en-US', {
         year: 'numeric',
@@ -167,7 +191,7 @@ export function CollectionHeader({
         day: 'numeric',
       })
     : createdAt
-      ? createdAt.toLocaleDateString('en-US', {
+      ? new Date(createdAt).toLocaleDateString('en-US', {
           year: 'numeric',
           month: 'long',
           day: 'numeric',
@@ -189,7 +213,7 @@ export function CollectionHeader({
         />
       ) : (
         <div className={cn(
-          'absolute inset-0 bg-gradient-to-b to-transparent',
+          'absolute inset-0 bg-linear-to-b to-transparent',
           accentColor === 'love' && 'from-love/20',
           accentColor === 'rose' && 'from-rose/20',
           accentColor === 'iris' && 'from-iris/20',
@@ -202,7 +226,7 @@ export function CollectionHeader({
       <div className="relative z-10 px-8 pt-8 pb-8">
         <div className="flex items-end gap-8">
           {/* Cover art */}
-          <div className="w-56 h-56 rounded-lg overflow-hidden bg-surface shadow-2xl flex-shrink-0 ring-1 ring-white/10">
+          <div className="w-56 h-56 rounded-lg overflow-hidden bg-surface shadow-2xl shrink-0 ring-1 ring-white/10">
             {coverUrl ? (
               <img
                 src={coverUrl}
@@ -701,7 +725,7 @@ function TrackListRow({
             'font-medium truncate',
             isCurrentTrack ? 'text-rose' : 'text-text'
           )}>
-            {track.title}
+            {getDisplayTitle(track)}
           </p>
         </button>
         {artistName ? (
@@ -792,7 +816,7 @@ export interface PlaylistTrackItem extends TrackItem {
   albumTitle?: string;
   albumUrl?: string;
   bandUrl?: string;
-  addedAt?: Date;
+  addedAt?: number; // Unix timestamp (ms)
 }
 
 export interface PlaylistTrackListProps {
@@ -848,8 +872,9 @@ export function PlaylistTrackList({
         case 'album':
           return dir * (a.albumTitle || '').localeCompare(b.albumTitle || '');
         case 'added':
-          const aTime = a.addedAt?.getTime() || 0;
-          const bTime = b.addedAt?.getTime() || 0;
+          // addedAt is now a Unix timestamp (number)
+          const aTime = a.addedAt || 0;
+          const bTime = b.addedAt || 0;
           return dir * (aTime - bTime);
         case 'duration':
           return dir * (a.duration - b.duration);
@@ -1028,7 +1053,7 @@ function PlaylistTrackRow({
         <button
           onClick={onPlay}
           disabled={!isStreamable}
-          className="relative w-full h-full rounded overflow-hidden bg-highlight-med flex-shrink-0 disabled:cursor-not-allowed group/cover"
+          className="relative w-full h-full rounded overflow-hidden bg-highlight-med shrink-0 disabled:cursor-not-allowed group/cover"
         >
           {track.artId ? (
             <img
@@ -1072,7 +1097,7 @@ function PlaylistTrackRow({
             'font-medium truncate',
             isCurrentTrack ? 'text-rose' : 'text-text'
           )}>
-            {track.title}
+            {getDisplayTitle(track)}
           </p>
         </button>
         <button

@@ -1,12 +1,20 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { audioEngine } from '@/lib/audio';
 import { usePlayerStore, useQueueStore, useLibraryStore, useSettingsStore } from '@/lib/store';
-import { EQ_PRESETS } from '@/lib/store/settingsStore';
 import { buildArtUrl, ImageSizes } from '@/types';
+import { getDisplayTitle } from '@/lib/utils';
+
+// Enable debug logging for hot reload troubleshooting
+const DEBUG_HOT_RELOAD = false;
 
 /**
  * Hook to connect the audio engine with Zustand stores.
  * This should be called once at the app root.
+ *
+ * Hot Reload Strategy:
+ * - On mount, syncs with AudioEngine's actual state
+ * - Checks DOM for playing audio before pausing/loading
+ * - Prevents store reset from interrupting playback
  */
 export function useAudioPlayer() {
   const {
@@ -35,11 +43,45 @@ export function useAudioPlayer() {
   const shouldAutoPlay = useRef(false);
   // Track if we're in the middle of a crossfade (to freeze duration display)
   const isCrossfading = useRef(false);
+  // Track if we should restore saved position after loading
+  const shouldRestorePosition = useRef<number | null>(null);
 
   // Initialize library on mount
   useEffect(() => {
     initLibrary();
   }, [initLibrary]);
+
+  // Sync with audio engine state on mount (handles hot reload)
+  useEffect(() => {
+    // Force resync with DOM to find any playing audio (only once on mount)
+    audioEngine.resyncWithDOM(true);
+
+    // Small delay to let the audio element stabilize after potential hot reload
+    const syncTimeout = setTimeout(() => {
+      const actuallyPlaying = audioEngine.isPlaying();
+      const currentTime = audioEngine.getCurrentTime();
+      const duration = audioEngine.getDuration();
+
+      if (DEBUG_HOT_RELOAD) console.log('[useAudioPlayer] Mount sync check:', { actuallyPlaying, currentTime, duration });
+
+      if (actuallyPlaying || currentTime > 0) {
+        if (DEBUG_HOT_RELOAD) console.log('[useAudioPlayer] Hot reload - audio is playing, syncing store');
+        if (actuallyPlaying) {
+          setIsPlaying(true);
+        }
+        if (duration > 0 && !isNaN(duration)) {
+          setDuration(duration);
+        }
+        if (currentTime > 0) {
+          setCurrentTime(currentTime);
+        }
+      }
+    }, 50);
+
+    return () => clearTimeout(syncTimeout);
+  // Only run once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Store repeat mode in ref so callback always has latest value
   const repeatRef = useRef(repeat);
@@ -53,22 +95,38 @@ export function useAudioPlayer() {
     queueRef.current = { queue, currentIndex };
   }, [queue, currentIndex]);
 
-  // Update audio engine with ALL settings
+  // Update audio engine with playback settings
   useEffect(() => {
-    const eqGains = audioSettings.equalizerPreset === 'custom'
-      ? audioSettings.customEqGains
-      : EQ_PRESETS[audioSettings.equalizerPreset];
-
     audioEngine.updateSettings({
       crossfadeEnabled: audioSettings.crossfadeEnabled,
       crossfadeDuration: audioSettings.crossfadeDuration,
-      equalizerEnabled: audioSettings.equalizerEnabled,
-      eqGains,
       volumeNormalization: audioSettings.volumeNormalization,
-      monoAudio: audioSettings.monoAudio,
       gaplessPlayback: audioSettings.gaplessPlayback,
     });
-  }, [audioSettings]);
+  }, [audioSettings.crossfadeEnabled, audioSettings.crossfadeDuration, audioSettings.volumeNormalization, audioSettings.gaplessPlayback]);
+
+  // Update EQ settings separately (more granular control)
+  // Also run on mount to ensure EQ is applied after hot-reload
+  useEffect(() => {
+    audioEngine.updateEqSettings({
+      enabled: audioSettings.eq.enabled,
+      gains: audioSettings.eq.gains,
+    });
+  }, [audioSettings.eq.enabled, audioSettings.eq.gains]);
+
+  // Force reconnect and EQ reapply on mount (for hot-reload)
+  useEffect(() => {
+    // Small delay to ensure audio graph is ready, then force reconnect
+    const timer = setTimeout(async () => {
+      await audioEngine.forceReconnect();
+      audioEngine.updateEqSettings({
+        enabled: audioSettings.eq.enabled,
+        gains: audioSettings.eq.gains,
+      });
+    }, 150);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Set up audio engine callbacks
   useEffect(() => {
@@ -122,6 +180,15 @@ export function useAudioPlayer() {
       },
       onCanPlay: () => {
         setIsBuffering(false);
+
+        // Restore saved position if we have one
+        if (shouldRestorePosition.current !== null && shouldRestorePosition.current > 0) {
+          const savedPosition = shouldRestorePosition.current;
+          shouldRestorePosition.current = null;
+          audioEngine.seek(savedPosition);
+          setCurrentTime(savedPosition);
+        }
+
         if (shouldAutoPlay.current) {
           shouldAutoPlay.current = false;
           audioEngine.play().catch((err) => {
@@ -186,17 +253,39 @@ export function useAudioPlayer() {
       },
     });
 
-    return () => {
-      audioEngine.destroy();
-    };
+    // Don't destroy on cleanup - let audio continue playing across hot reloads
+    // Audio engine is a singleton that persists for the lifetime of the app
   }, [hasNext, playNext, advanceToNext, playTrackAt, setIsPlaying, setCurrentTime, setDuration, setIsBuffering, setError, clearError]);
+
+  // Track the last track ID we tried to load
+  const lastLoadedTrackId = useRef<number | null>(null);
+  // Track if this is the first load after mount (for restoring position)
+  const isFirstLoad = useRef(true);
 
   // Load when current track changes
   useEffect(() => {
     // Must have a valid stream URL (starts with http)
-    if (currentTrack?.streamUrl && currentTrack.streamUrl.startsWith('http')) {
+    if (!currentTrack?.streamUrl || !currentTrack.streamUrl.startsWith('http')) {
+      return;
+    }
+
+    // Check if this is a NEW track (user changed it) or same track (hot reload/restore)
+    const isNewTrack = lastLoadedTrackId.current !== null && lastLoadedTrackId.current !== currentTrack.id;
+    lastLoadedTrackId.current = currentTrack.id;
+
+    // For new tracks, force load (user intentionally changed)
+    // For same track (hot reload), don't force - let AudioEngine decide
       shouldAutoPlay.current = isPlaying;
-      audioEngine.load(currentTrack.streamUrl);
+
+    // If this is the first load and we have a saved position, restore it
+    if (isFirstLoad.current && currentTime > 0) {
+      shouldRestorePosition.current = currentTime;
+      isFirstLoad.current = false;
+    } else if (isNewTrack) {
+      shouldRestorePosition.current = null;
+    }
+
+    audioEngine.load(currentTrack.streamUrl, isNewTrack);
 
       // Add to history
       if (currentTrack.id !== lastHistoryTrackId.current) {
@@ -210,7 +299,6 @@ export function useAudioPlayer() {
           albumUrl: currentTrack.albumUrl,
           bandUrl: currentTrack.bandUrl,
         });
-      }
     }
   }, [currentTrack?.id, currentTrack?.streamUrl]);
 
@@ -230,13 +318,17 @@ export function useAudioPlayer() {
     }
   }, [currentIndex, queue, audioSettings.gaplessPlayback, audioSettings.crossfadeEnabled]);
 
+  // Track if this is initial mount (for hot reload handling)
+  const isInitialMount = useRef(true);
+
   // Handle play/pause state changes
   useEffect(() => {
+    // Skip if autoplay will handle it
     if (shouldAutoPlay.current) {
       return;
     }
 
-    // Must have a valid stream URL to play
+    // Normal play/pause handling
     if (isPlaying && currentTrack?.streamUrl && currentTrack.streamUrl.startsWith('http')) {
       audioEngine.play().catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') {
@@ -245,9 +337,22 @@ export function useAudioPlayer() {
         console.error('[useAudioPlayer] Play failed:', err);
       });
     } else if (!isPlaying) {
+      // On initial mount, use safePause to avoid stopping music during hot reload
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        // Check if any audio is actually playing in DOM
+        const allAudio = document.querySelectorAll('audio');
+        for (const audio of allAudio) {
+          if (!audio.paused) {
+            if (DEBUG_HOT_RELOAD) console.log('[useAudioPlayer] Initial mount - audio playing in DOM, syncing store');
+            setIsPlaying(true);
+            return;
+          }
+        }
+      }
       audioEngine.pause();
     }
-  }, [isPlaying, currentTrack?.streamUrl]);
+  }, [isPlaying, currentTrack?.streamUrl, setIsPlaying]);
 
   // Handle volume changes
   useEffect(() => {
@@ -259,18 +364,30 @@ export function useAudioPlayer() {
     audioEngine.setMuted(isMuted);
   }, [isMuted]);
 
-  // Media Session API - metadata
+  // Media Session API - metadata + Document title
   useEffect(() => {
+    // Use getDisplayTitle to compute cleaned title (artist prefix removed)
+    const displayTitle = currentTrack ? getDisplayTitle(currentTrack) : null;
+    const artist = currentTrack?.artist || currentTrack?.bandName || 'Unknown Artist';
+
+    // Update document title for tab display and extensions like auto-stop
+    if (currentTrack && displayTitle) {
+      document.title = `${artist} - ${displayTitle} | CampBand`;
+    } else {
+      document.title = 'CampBand';
+    }
+
+    // Media Session API
     if (!('mediaSession' in navigator)) return;
 
-    if (currentTrack) {
+    if (currentTrack && displayTitle) {
       const artUrl = currentTrack.artId
         ? buildArtUrl(currentTrack.artId, ImageSizes.MEDIUM_700)
         : undefined;
 
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack.title,
-        artist: currentTrack.artist || currentTrack.bandName || 'Unknown Artist',
+        title: displayTitle,
+        artist,
         album: currentTrack.albumTitle || '',
         artwork: artUrl
           ? [{ src: artUrl, sizes: '700x700', type: 'image/jpeg' }]

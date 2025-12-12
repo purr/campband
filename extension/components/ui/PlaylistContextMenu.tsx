@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Pencil, Trash2, ListPlus, ListEnd, Check, Play } from 'lucide-react';
 import { cn, registerContextMenu, unregisterContextMenu, notifyMenuClosed, notifyMenuOpening, scheduleCloseFromMousedown } from '@/lib/utils';
-import { usePlaylistStore, useQueueStore, usePlayerStore, useUIStore } from '@/lib/store';
+import { usePlaylistStore, useQueueStore, usePlayerStore, useUIStore, useSettingsStore } from '@/lib/store';
+import { useUnlikeConfirm } from './ConfirmProvider';
 import type { Playlist } from '@/lib/db';
 
 interface PlaylistContextMenuProps {
@@ -19,6 +20,8 @@ export function PlaylistContextMenu({ position, playlist, onClose }: PlaylistCon
   const { setQueue, addMultipleToQueue, insertMultipleNext } = useQueueStore();
   const { play } = usePlayerStore();
   const { openEditPlaylistModal } = useUIStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmDeletePlaylist } = useUnlikeConfirm();
   const [isVisible, setIsVisible] = useState(false);
   const [playingNext, setPlayingNext] = useState(false);
   const [addedToQueue, setAddedToQueue] = useState(false);
@@ -153,6 +156,18 @@ export function PlaylistContextMenu({ position, playlist, onClose }: PlaylistCon
 
   const handleDelete = async () => {
     if (!playlist.id) return;
+
+    const hasTracks = (playlist.trackIds?.length || 0) > 0;
+
+    // Confirm deletion if setting is enabled and playlist has tracks
+    if (confirmOnUnlike && hasTracks) {
+      const confirmed = await confirmDeletePlaylist(playlist.name);
+      if (!confirmed) {
+        handleClose();
+        return;
+      }
+    }
+
     setIsDeleting(true);
     try {
       await deletePlaylist(playlist.id);

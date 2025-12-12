@@ -163,14 +163,14 @@ function validateImportData(data: unknown): data is ExportedData {
 }
 
 /**
- * Convert date strings back to Date objects
- * JSON.parse converts Date objects to ISO strings, we need to convert them back
+ * Convert date values to Unix timestamp (milliseconds)
+ * Handles Date objects, ISO strings, and existing timestamps
  */
-function parseDate(value: unknown): Date {
-  if (value instanceof Date) return value;
-  if (typeof value === 'string') return new Date(value);
-  if (typeof value === 'number') return new Date(value);
-  return new Date(); // Fallback to now
+function parseTimestamp(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') return new Date(value).getTime();
+  return Date.now(); // Fallback to now
 }
 
 /**
@@ -200,9 +200,9 @@ function validateTrack(track: unknown): FavoriteTrack | null {
     bandUrl: typeof t.bandUrl === 'string' ? t.bandUrl : undefined,
     duration: t.duration,
     streamUrl: typeof t.streamUrl === 'string' ? t.streamUrl : undefined,
-    addedAt: parseDate(t.addedAt),
+    addedAt: parseTimestamp(t.addedAt),
     playCount: typeof t.playCount === 'number' ? t.playCount : undefined,
-    lastPlayedAt: t.lastPlayedAt ? parseDate(t.lastPlayedAt) : undefined,
+    lastPlayedAt: t.lastPlayedAt ? parseTimestamp(t.lastPlayedAt) : undefined,
   };
 }
 
@@ -230,7 +230,7 @@ function validateAlbum(album: unknown): FavoriteAlbum | null {
     bandId: a.bandId,
     bandUrl: typeof a.bandUrl === 'string' ? a.bandUrl : undefined,
     releaseDate: typeof a.releaseDate === 'string' ? a.releaseDate : undefined,
-    addedAt: parseDate(a.addedAt),
+    addedAt: parseTimestamp(a.addedAt),
   };
 }
 
@@ -252,7 +252,7 @@ function validateArtist(artist: unknown): FavoriteArtist | null {
     url: a.url,
     imageId: typeof a.imageId === 'number' ? a.imageId : undefined,
     location: typeof a.location === 'string' ? a.location : undefined,
-    addedAt: parseDate(a.addedAt),
+    addedAt: parseTimestamp(a.addedAt),
   };
 }
 
@@ -407,8 +407,8 @@ export async function importData(
               description: playlist.description,
               coverImage: playlist.coverImage,
               trackIds: playlist.trackIds,
-              createdAt: parseDate(playlist.createdAt),
-              updatedAt: parseDate(playlist.updatedAt),
+              createdAt: parseTimestamp(playlist.createdAt),
+              updatedAt: parseTimestamp(playlist.updatedAt),
             });
 
             // Add to playlistTracks
@@ -417,7 +417,7 @@ export async function importData(
                 playlistId,
                 trackId: playlist.trackIds[i],
                 position: i,
-                addedAt: new Date(),
+                addedAt: Date.now(),
               });
             }
 
@@ -429,8 +429,8 @@ export async function importData(
               description: playlist.description,
               coverImage: playlist.coverImage,
               trackIds: playlist.trackIds,
-              createdAt: parseDate(playlist.createdAt),
-              updatedAt: parseDate(playlist.updatedAt),
+              createdAt: parseTimestamp(playlist.createdAt),
+              updatedAt: parseTimestamp(playlist.updatedAt),
             });
 
             // Add to playlistTracks
@@ -439,7 +439,7 @@ export async function importData(
                 playlistId,
                 trackId: playlist.trackIds[i],
                 position: i,
-                addedAt: new Date(),
+                addedAt: Date.now(),
               });
             }
 

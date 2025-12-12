@@ -335,6 +335,103 @@ const DELAYS = {
 };
 ```
 
+## Permanent Caching System
+
+CampBand uses a permanent caching system for artist and album data to enable instant loading after the first visit.
+
+### How It Works
+
+1. **First Visit**: Fetch artist/album data and cache permanently in IndexedDB
+2. **Subsequent Visits**: Load from cache instantly, no network request
+3. **New Release Detection**: Background check for new releases (rate-limited)
+
+### Cache Flow for Artist Pages
+
+```
+User visits artist page
+       │
+       ▼
+Check memory cache (instant)
+       │
+       ├─► Cache hit: Display immediately
+       │         │
+       │         ▼
+       │   Check lastCheckedAt > 10 min?
+       │         │
+       │         ├─► Yes: Background check for new releases
+       │         │         (fetch /music page only)
+       │         │
+       │         └─► No: Done
+       │
+       └─► Cache miss: Check IndexedDB
+                 │
+                 ├─► DB hit: Load & display
+                 │         │
+                 │         ▼
+                 │   Same new release check
+                 │
+                 └─► DB miss: Fetch fresh
+                           │
+                           ▼
+                     Cache in IndexedDB
+                           │
+                           ▼
+                     Pre-cache all releases (background)
+```
+
+### New Release Detection
+
+When an artist page is loaded from cache:
+- If `lastCheckedAt` > 10 minutes ago, fetch just the `/music` page
+- Compare release count with cached count
+- If new releases found:
+  - Update the cached artist data
+  - Fetch and cache new release track data in background
+
+This ensures:
+- Instant page loads from cache
+- Users eventually see new releases
+- No spamming Bandcamp with requests
+
+### IndexedDB Schema
+
+```typescript
+interface CachedArtist {
+  id: number;            // bandId
+  url: string;           // Normalized artist URL
+  data: string;          // JSON string of ArtistPage
+  cachedAt: number;      // When first cached (Unix ms)
+  lastCheckedAt: number; // When last checked for new releases
+  releaseCount: number;  // For detecting new releases
+}
+
+interface CachedAlbum {
+  id: number;            // albumId
+  url: string;           // Album URL
+  data: string;          // JSON string of Album (with tracks)
+  cachedAt: number;      // When cached (Unix ms)
+}
+```
+
+### Benefits
+
+- **Instant loading**: Artist pages load instantly after first visit
+- **Play All works fast**: All release track data is pre-cached
+- **Offline-ish**: Browse cached artists without network
+- **New releases detected**: Background checks keep data fresh
+- **Rate-limited**: Only one check per artist per 10 minutes
+
+### Cache Management
+
+```typescript
+// In artistStore
+clearCache()        // Clear all cached data
+getCacheStats()     // Get count of cached artists/albums
+
+// In Settings page
+// Users can clear cache manually
+```
+
 ## State Management
 
 ### Zustand Stores
@@ -407,10 +504,6 @@ interface SettingsState {
     crossfadeDuration: number;  // 1-12 seconds
     volumeNormalization: boolean;
     gaplessPlayback: boolean;
-    monoAudio: boolean;
-    equalizerEnabled: boolean;
-    equalizerPreset: EqualizerPreset;
-    customEqGains: number[];  // 10 bands, -12 to +12 dB
   };
   app: {
     theme: 'dark' | 'light' | 'system';
@@ -586,6 +679,8 @@ utils/
 ├── format.ts       # formatTime, formatSmartDate, formatPlayCount, etc.
 ├── linkify.ts      # Convert URLs in text to clickable links
 ├── track.ts        # Track conversion utilities
+│   ├── cleanTrackTitle()       # Remove artist prefix from title (see below)
+│   ├── getDisplayTitle()       # Get cleaned title from track object
 │   ├── toPlayableTrack()       # Convert any track-like object to playable
 │   ├── toPlayableTracks()      # Batch convert with streamability filter
 │   ├── historyEntryToTrack()   # Convert history entries
@@ -660,25 +755,292 @@ Based on [rose-pine/cursor](https://github.com/rose-pine/cursor).
 .frosted-glass      /* Light frosted effect */
 ```
 
+## Track Title Cleaning
+
+Bandcamp tracks often include the artist name as a prefix in the title (e.g., "Sadness - Song Title" when the artist is "Sadness"). CampBand automatically cleans these titles for display.
+
+### How It Works
+
+The `cleanTrackTitle()` utility removes redundant artist prefixes:
+
+```typescript
+cleanTrackTitle("Sadness - Song Title", "Sadness")  // → "Song Title"
+cleanTrackTitle("SADNESS - Song Title", "Sadness")  // → "Song Title" (case-insensitive)
+cleanTrackTitle("Sadness—Song Title", "Sadness")    // → "Song Title" (em dash)
+cleanTrackTitle("Other Artist - Song", "Sadness")   // → "Other Artist - Song" (no match)
+cleanTrackTitle("Sadness & Joy - Song", "Sadness")  // → "Sadness & Joy - Song" (partial, no change)
+```
+
+### Supported Separators
+- Hyphen: `-`
+- En dash: `–`
+- Em dash: `—`
+- Minus sign: `−`
+
+### Track.displayTitle Field
+
+The `Track` interface includes a `displayTitle` field:
+- Set automatically by `toPlayableTrack()` when tracks are loaded
+- Falls back to original `title` if no artist prefix found
+- Used in all display locations: PlayerBar, QueuePanel, TrackLists, Media Session API, document title
+
+### Where Applied
+- Player bar track title
+- Queue panel track titles
+- Track lists (album page, library, playlists)
+- Context menus
+- Browser tab title (`Artist - Song | CampBand`)
+- Media Session API (OS media controls)
+- Extensions like auto-stop that read the document title
+
+### Usage Pattern
+Always use `getDisplayTitle(track)` instead of `track.title` or `track.displayTitle || track.title`:
+
+```tsx
+// ❌ Wrong - displayTitle may be undefined for tracks from API
+{track.displayTitle || track.title}
+
+// ✅ Correct - computes cleaned title on-the-fly
+import { getDisplayTitle } from '@/lib/utils';
+{getDisplayTitle(track)}
+```
+
+The `displayTitle` field on Track objects is only set when tracks pass through `toPlayableTrack()` (e.g., when added to queue). Tracks displayed directly from the API (album pages, search results) won't have it set, so always use `getDisplayTitle()` for display.
+
+---
+
 ## AudioEngine
 
-The `AudioEngine` class handles all audio playback with these features:
+The `AudioEngine` class (`extension/lib/audio/AudioEngine.ts`) handles all audio playback. It's a singleton stored on `window.__campband_audio_engine__` to persist across hot reloads.
+
+### Features
 
 - **Blob Playback**: Fetches audio as blob to bypass CORS restrictions
 - **Dual Audio Elements**: Primary + crossfade audio for seamless transitions
 - **Crossfade Support**: Configurable 1-12 second crossfade between tracks
+- **Gapless Playback**: Pre-fetches next track for seamless transitions
+- **Volume Normalization**: Optional compressor for consistent loudness
 - **Event Callbacks**: Play, pause, ended, timeupdate, error, loadstart, canplay
 - **Abort Handling**: Cancels pending fetches when loading new tracks
+- **Hot Reload Persistence**: Audio continues playing during development reloads
+
+### API
 
 ```typescript
-// Usage
-audioEngine.load(streamUrl);      // Load track
-audioEngine.play();               // Start playback
-audioEngine.pause();              // Pause
-audioEngine.seek(30);             // Seek to 30 seconds
-audioEngine.setVolume(0.8);       // Set volume (0-1)
-audioEngine.crossfadeTo(nextUrl); // Crossfade to next track
+// Loading & Playback
+audioEngine.load(streamUrl);       // Load track (won't interrupt if audio playing)
+audioEngine.load(streamUrl, true); // Force load (for user track changes)
+audioEngine.play();                // Start playback
+audioEngine.pause();               // Pause
+audioEngine.stop();                // Stop and reset
+audioEngine.seek(30);              // Seek to 30 seconds
+audioEngine.seekPercent(50);       // Seek to 50%
+
+// Volume
+audioEngine.setVolume(0.8);        // Set volume (0-1)
+audioEngine.getVolume();           // Get current volume
+audioEngine.setMuted(true);        // Mute/unmute
+audioEngine.isMuted();             // Check mute state
+
+// Crossfade & Gapless
+audioEngine.crossfadeTo(nextUrl);  // Crossfade to next track
+audioEngine.preloadNext(nextUrl);  // Pre-fetch next track for gapless
+audioEngine.cancelCrossfade();     // Cancel ongoing crossfade
+
+// State
+audioEngine.isPlaying();           // Check if playing
+audioEngine.getCurrentTime();      // Get current position
+audioEngine.getDuration();         // Get track duration
+audioEngine.getCurrentSrc();       // Get current source URL
+audioEngine.getState();            // Get full state object
+
+// Settings
+audioEngine.updateSettings({
+  crossfadeEnabled: true,
+  crossfadeDuration: 4,            // 1-12 seconds
+  volumeNormalization: false,
+  gaplessPlayback: true,
+});
+
+// Hot Reload
+audioEngine.resyncWithDOM(true);   // Re-sync with DOM audio elements
+audioEngine.setCallbacks({...});   // Set event callbacks (reconnects audio graph)
 ```
+
+### Audio Signal Chain
+
+```
+┌─────────────────┐     ┌──────────────┐     ┌────────────────┐     ┌──────────┐     ┌─────────────┐
+│ Audio Element   │────►│ 10-Band EQ   │────►│ Compressor     │────►│ GainNode │────►│ Destination │
+│ (MediaElement   │     │ (if enabled) │     │ (if volume     │     │ (volume  │     │ (speakers)  │
+│  SourceNode)    │     │              │     │  normalization)│     │  control)│     │             │
+└─────────────────┘     └──────────────┘     └────────────────┘     └──────────┘     └─────────────┘
+```
+
+Two identical chains exist (primary + crossfade) for seamless transitions.
+
+### 10-Band Equalizer
+
+The AudioEngine includes a 10-band parametric equalizer:
+
+| Frequency | Type | Notes |
+|-----------|------|-------|
+| 32 Hz | Low Shelf | Sub-bass |
+| 64 Hz | Peaking | Bass |
+| 125 Hz | Peaking | Low-mid bass |
+| 250 Hz | Peaking | Mid-bass |
+| 500 Hz | Peaking | Low-mids |
+| 1 kHz | Peaking | Mids |
+| 2 kHz | Peaking | High-mids |
+| 4 kHz | Peaking | Presence |
+| 8 kHz | Peaking | Brilliance |
+| 16 kHz | High Shelf | Air |
+
+**Gain Range**: -12 dB to +12 dB per band
+
+**Presets**: Flat, Bass Boost, Treble Boost, Vocal, Rock, Electronic, Acoustic
+
+```typescript
+// EQ API
+audioEngine.setEqEnabled(true);              // Enable/disable EQ
+audioEngine.setEqBand(1000, 3);              // Set 1kHz to +3dB
+audioEngine.applyEqPreset('bass');           // Apply preset
+audioEngine.getEqSettings();                 // Get current settings
+```
+
+### File Structure
+
+```
+extension/lib/audio/
+├── index.ts            # Exports
+├── AudioEngine.ts      # Main orchestrator (uses modules below)
+├── AudioGraph.ts       # Web Audio API graph with EQ, compressor, gain
+├── AudioElement.ts     # HTMLAudioElement wrapper with blob handling
+├── AudioCrossfade.ts   # Crossfade/gapless logic (standalone)
+├── AudioInterceptor.ts # Captures ALL page audio (for future use)
+└── types.ts            # TypeScript interfaces
+```
+
+#### Module Responsibilities
+
+| Module | Purpose |
+|--------|---------|
+| **AudioEngine** | Main API - orchestrates modules, handles callbacks, singleton pattern |
+| **AudioGraph** | Web Audio API chain (source → EQ → compressor → gain → destination). ALL audio goes through this. |
+| **AudioElement** | Wraps HTMLAudioElement with blob URL management, event binding, hot reload support |
+| **AudioCrossfade** | Standalone crossfade logic with equal-power fade (sine/cosine) |
+| **AudioInterceptor** | Intercepts ALL audio on page via constructor override, MutationObserver, periodic scan |
+| **types** | TypeScript interfaces for callbacks, settings, state |
+
+#### AudioInterceptor (Future)
+
+The `AudioInterceptor` module can capture ALL audio sources on the page, ensuring they go through our processing pipeline:
+
+```typescript
+import { initAudioInterceptor, onAudioCaptured } from '@/lib/audio';
+
+// Initialize - intercepts all Audio() calls and play() calls
+initAudioInterceptor({ eq: { enabled: true, gains: {...} } });
+
+// Get notified when audio is captured
+onAudioCaptured((element, graph) => {
+  console.log('Captured audio:', element.src);
+});
+```
+
+Methods used:
+1. Override `Audio` constructor
+2. Override `HTMLMediaElement.prototype.play`
+3. MutationObserver for dynamically added elements
+4. Periodic DOM scan for elements that slip through
+
+### Edge Cases & Fixes
+
+| Edge Case | Solution |
+|-----------|----------|
+| **Skip during crossfade** | `completeCrossfadeSwap()` - immediately swaps audio elements, keeps playback position, syncs UI with multiple setTimeout callbacks |
+| **Hot reload breaks playback** | Audio elements persist in DOM with IDs, `resyncWithDOM()` finds and adopts them, singleton pattern prevents duplicate engines |
+| **Duplicate audio elements** | `cleanupDuplicateAudio()` removes rogue elements on init and callback setup |
+| **MediaElementSourceNode reuse** | Can only create one per audio element - check `sourceNode.mediaElement === audio` before creating new |
+| **AudioContext suspended** | `ensureAudioContext()` resumes on user gesture, handles suspended state gracefully |
+| **Crossfade gain not applied** | Check `crossfadeGainNode` exists before fade, set to 0 before playing crossfade audio |
+| **Store resets on hot reload** | Effects check actual DOM state before pausing, sync store to DOM reality |
+
+### Hot Reload Audio Persistence
+
+During development, WXT hot reloads cause React to remount. CampBand ensures audio continues playing uninterrupted:
+
+```
+Hot reload happens
+       │
+       ▼
+Audio element persists in DOM (keeps playing!)
+       │
+       ▼
+React remounts, Zustand stores reset (isPlaying: false)
+       │
+       ▼
+useAudioPlayer mounts:
+       │
+       ├─► Load effect: isNewTrack = false (same track)
+       │       │
+       │       ▼
+       │   audioEngine.load(url, force=false)
+       │       │
+       │       ▼
+       │   Check DOM: audio playing? → Skip load, don't interrupt!
+       │
+       ├─► Play/pause effect: isPlaying = false (from store)
+       │       │
+       │       ▼
+       │   Initial mount: Check DOM for playing audio
+       │       │
+       │       ▼
+       │   Found playing audio? → setIsPlaying(true), sync store!
+       │
+       └─► Sync effect: resyncWithDOM(true)
+               │
+               ▼
+           Find & adopt playing audio element
+               │
+               ▼
+           Sync time, duration to store
+```
+
+#### Key Protection Mechanisms
+
+1. **`audioEngine.load(src, force)`**:
+   - `force = false` (default): Checks DOM for any playing audio first
+   - If audio is playing → skip load, don't interrupt
+   - `force = true`: Proceed with load (user intentionally changed track)
+
+2. **`audioEngine.resyncWithDOM(force)`**:
+   - Searches DOM for audio elements by priority:
+     - Playing audio (`!paused`) = highest priority
+     - Audio with progress (`currentTime > 0`)
+     - Audio with our ID (`#campband-audio-primary`)
+     - Audio with blob source
+   - Adopts the best candidate and re-attaches listeners
+
+3. **Play/pause effect protection**:
+   - On initial mount, checks DOM before pausing
+   - If audio is playing → sync store to `true` instead of pausing
+
+4. **Singleton persistence**:
+   - AudioEngine stored on `window.__campband_audio_engine__`
+   - Survives module re-evaluation during hot reload
+
+#### Why This Matters
+
+Without these protections:
+- Store resets to `isPlaying: false` on remount
+- Play/pause effect sees `false` → calls `pause()`
+- Music stops unexpectedly!
+
+With protections:
+- Audio keeps playing in DOM
+- Effects check actual DOM state before acting
+- Store syncs to reality, not vice versa
 
 ## Browser Extension APIs Used
 

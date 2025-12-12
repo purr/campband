@@ -1,9 +1,6 @@
 import { useState } from 'react';
 import {
   Volume2,
-  Music2,
-  Sliders,
-  RotateCcw,
   ChevronDown,
   Info,
   Waves,
@@ -14,16 +11,19 @@ import {
   Settings2,
   HeartOff,
   Database,
+  SlidersHorizontal,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
-import { useSettingsStore, EQ_FREQUENCIES, EQ_PRESETS, type EqualizerPreset } from '@/lib/store/settingsStore';
+import { useSettingsStore } from '@/lib/store/settingsStore';
 import { DataManagement } from '@/components/settings/DataManagement';
+import { EQ_FREQUENCIES, EQ_PRESETS, type EqBand, type EqPresetName } from '@/lib/audio';
 
 export function SettingsPage() {
   return (
     <div className="min-h-full pb-8">
-      <PageHeader title="Settings" />
+      <PageHeader />
 
       <div className="px-8 py-6 space-y-6">
         {/* Behavior Section */}
@@ -104,7 +104,7 @@ function SettingsSection({ icon, title, description, children, defaultOpen = fal
       >
         <div className={cn(
           'p-3 rounded-xl transition-colors duration-200',
-          'bg-gradient-to-br from-rose/20 to-iris/10',
+          'bg-linear-to-br from-rose/20 to-iris/10',
           'text-rose group-hover:from-rose/30 group-hover:to-iris/20'
         )}>
           {icon}
@@ -178,7 +178,7 @@ function CrossfadeSettings() {
 
             {/* Filled track */}
             <div
-              className="absolute left-0 h-1.5 bg-gradient-to-r from-rose to-rose/70 rounded-full transition-all duration-150 ease-out"
+              className="absolute left-0 h-1.5 bg-linear-to-r from-rose to-rose/70 rounded-full transition-all duration-150 ease-out"
               style={{ width: `${((crossfadeDuration - 1) / 11) * 100}%` }}
             />
 
@@ -220,10 +220,9 @@ function CrossfadeSettings() {
 
 function PlaybackSettings() {
   const {
-    audio: { gaplessPlayback, volumeNormalization, monoAudio },
+    audio: { gaplessPlayback, volumeNormalization },
     setGaplessPlayback,
     setVolumeNormalization,
-    setMonoAudio,
   } = useSettingsStore();
 
   return (
@@ -249,42 +248,7 @@ function PlaybackSettings() {
           <Toggle checked={volumeNormalization} onChange={setVolumeNormalization} />
         </div>
       </SettingCard>
-
-      <SettingCard>
-        <div className="flex items-center justify-between">
-          <SettingInfo
-            icon={<Music2 size={18} />}
-            title="Mono Audio"
-            description="Combine left and right channels"
-          />
-          <Toggle checked={monoAudio} onChange={setMonoAudio} />
-        </div>
-      </SettingCard>
     </>
-  );
-}
-
-// ============================================
-// Behavior Settings
-// ============================================
-
-function BehaviorSettings() {
-  const {
-    app: { confirmOnUnlike },
-    setConfirmOnUnlike,
-  } = useSettingsStore();
-
-  return (
-    <SettingCard>
-      <div className="flex items-center justify-between">
-        <SettingInfo
-          icon={<HeartOff size={18} />}
-          title="Confirm on Unlike"
-          description="Ask before removing from favorites"
-        />
-        <Toggle checked={confirmOnUnlike} onChange={setConfirmOnUnlike} />
-      </div>
-    </SettingCard>
   );
 }
 
@@ -292,63 +256,61 @@ function BehaviorSettings() {
 // Equalizer Settings
 // ============================================
 
+const EQ_PRESET_LABELS: Record<EqPresetName | 'custom', string> = {
+  flat: 'Flat',
+  bass: 'Bass Boost',
+  treble: 'Treble',
+  vocal: 'Vocal',
+  rock: 'Rock',
+  electronic: 'Electronic',
+  acoustic: 'Acoustic',
+  custom: 'Custom',
+};
+
 function EqualizerSettings() {
   const {
-    audio: { equalizerEnabled, equalizerPreset, customEqGains },
-    setEqualizerEnabled,
-    setEqualizerPreset,
-    setCustomEqGain,
-    resetEqualizer,
+    audio: { eq },
+    setEqEnabled,
+    setEqPreset,
+    setEqBand,
+    resetEq,
   } = useSettingsStore();
-
-  const presetLabels: Record<EqualizerPreset, string> = {
-    flat: 'Flat',
-    bass_boost: 'Bass Boost',
-    treble_boost: 'Treble',
-    vocal: 'Vocal',
-    rock: 'Rock',
-    electronic: 'Electronic',
-    acoustic: 'Acoustic',
-    custom: 'Custom',
-  };
-
-  const currentGains = equalizerPreset === 'custom' ? customEqGains : EQ_PRESETS[equalizerPreset];
 
   return (
     <SettingCard>
       <div className="flex items-center justify-between">
         <SettingInfo
-          icon={<Sliders size={18} />}
+          icon={<SlidersHorizontal size={18} />}
           title="Equalizer"
-          description={equalizerEnabled ? presetLabels[equalizerPreset] : 'Adjust frequency response'}
+          description={eq.enabled ? EQ_PRESET_LABELS[eq.preset] : 'Adjust frequency response'}
         />
-        <Toggle checked={equalizerEnabled} onChange={setEqualizerEnabled} />
+        <Toggle checked={eq.enabled} onChange={setEqEnabled} />
       </div>
 
       {/* Equalizer Panel - animated expand */}
       <div
         className={cn(
           'overflow-hidden transition-all duration-300 ease-out',
-          equalizerEnabled ? 'max-h-[500px] opacity-100 mt-4' : 'max-h-0 opacity-0 mt-0'
+          eq.enabled ? 'max-h-[500px] opacity-100 mt-4' : 'max-h-0 opacity-0 mt-0'
         )}
       >
         <div className="pl-11 space-y-4">
           {/* Preset selector */}
           <div className="flex flex-wrap gap-1.5">
-            {(Object.keys(presetLabels) as EqualizerPreset[]).map((preset) => (
+            {(Object.keys(EQ_PRESET_LABELS) as (EqPresetName | 'custom')[]).map((preset) => (
               <button
                 key={preset}
-                onClick={() => setEqualizerPreset(preset)}
+                onClick={() => setEqPreset(preset)}
                 className={cn(
                   'px-3 py-1.5 rounded-lg text-xs font-medium',
                   'transition-all duration-200',
                   'border',
-                  equalizerPreset === preset
+                  eq.preset === preset
                     ? 'bg-rose/20 text-rose border-rose/30'
                     : 'bg-white/5 text-text/60 border-white/5 hover:bg-white/10 hover:text-text hover:border-white/10'
                 )}
               >
-                {presetLabels[preset]}
+                {EQ_PRESET_LABELS[preset]}
               </button>
             ))}
           </div>
@@ -363,13 +325,13 @@ function EqualizerSettings() {
             </div>
 
             <div className="flex justify-between items-stretch gap-1.5 h-32">
-              {EQ_FREQUENCIES.map((freq, index) => (
+              {EQ_FREQUENCIES.map((freq) => (
                 <EqBand
                   key={freq}
                   frequency={freq}
-                  gain={currentGains[index]}
-                  onChange={(gain) => setCustomEqGain(index, gain)}
-                  disabled={equalizerPreset !== 'custom'}
+                  gain={eq.gains[freq]}
+                  onChange={(gain) => setEqBand(freq, gain)}
+                  disabled={eq.preset !== 'custom'}
                 />
               ))}
             </div>
@@ -377,7 +339,7 @@ function EqualizerSettings() {
 
           {/* Reset button */}
           <button
-            onClick={resetEqualizer}
+            onClick={resetEq}
             className={cn(
               'flex items-center gap-2 px-3 py-1.5 rounded-lg',
               'text-xs text-text/50 hover:text-text',
@@ -455,6 +417,30 @@ function EqBand({ frequency, gain, onChange, disabled }: EqBandProps) {
         {label}
       </span>
     </div>
+  );
+}
+
+// ============================================
+// Behavior Settings
+// ============================================
+
+function BehaviorSettings() {
+  const {
+    app: { confirmOnUnlike },
+    setConfirmOnUnlike,
+  } = useSettingsStore();
+
+  return (
+    <SettingCard>
+      <div className="flex items-center justify-between">
+        <SettingInfo
+          icon={<HeartOff size={18} />}
+          title="Confirm on Unlike"
+          description="Ask before removing from favorites"
+        />
+        <Toggle checked={confirmOnUnlike} onChange={setConfirmOnUnlike} />
+      </div>
+    </SettingCard>
   );
 }
 
@@ -592,7 +578,7 @@ function Toggle({ checked, onChange }: ToggleProps) {
         'relative w-12 h-7 rounded-full transition-all duration-300 ease-out',
         'focus:outline-none',
         checked
-          ? 'bg-gradient-to-r from-rose to-rose/80 shadow-lg shadow-rose/20'
+          ? 'bg-linear-to-r from-rose to-rose/80 shadow-lg shadow-rose/20'
           : 'bg-white/10 hover:bg-white/15'
       )}
     >

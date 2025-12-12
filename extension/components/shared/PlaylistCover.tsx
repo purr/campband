@@ -126,7 +126,7 @@ export function PlaylistCover({
   return (
     <div className={cn(
       'w-full h-full flex items-center justify-center',
-      'bg-gradient-to-br from-highlight-med to-surface text-muted',
+      'bg-linear-to-br from-highlight-med to-surface text-muted',
       className
     )}>
       <Music size={iconSize} className="opacity-50" />

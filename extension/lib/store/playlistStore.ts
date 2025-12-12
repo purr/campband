@@ -91,7 +91,7 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
       throw new Error(`A playlist named "${name}" already exists`);
     }
 
-    const now = new Date();
+    const now = Date.now();
     const playlist: Omit<Playlist, 'id'> = {
       name: name.trim(),
       description,
@@ -133,14 +133,15 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
     }
 
     try {
+      const now = Date.now();
       await db.playlists.update(id, {
         ...updates,
-        updatedAt: new Date(),
+        updatedAt: now,
       });
 
       set((state) => ({
         playlists: state.playlists.map((p) =>
-          p.id === id ? { ...p, ...updates, updatedAt: new Date() } : p
+          p.id === id ? { ...p, ...updates, updatedAt: now } : p
         ),
       }));
     } catch (error) {
@@ -176,20 +177,21 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
 
       // First, ensure the track is saved in favoriteTracks (so we have all metadata)
       const existingTrack = await db.favoriteTracks.get(track.id);
+      const now = Date.now();
       const favoriteTrack: FavoriteTrack = existingTrack || {
         id: track.id,
         title: track.title,
-        artist: 'artist' in track ? track.artist : (track.bandName || ''),
+        artist: ('artist' in track ? track.artist : track.bandName) || 'Unknown Artist',
         albumTitle: track.albumTitle,
         albumId: track.albumId,
         albumUrl: track.albumUrl,
         artId: track.artId,
-        bandId: 'bandId' in track ? track.bandId : 0,
+        bandId: ('bandId' in track ? track.bandId : 0) || 0,
         bandName: track.bandName,
         bandUrl: track.bandUrl,
         duration: track.duration,
         streamUrl: track.streamUrl,
-        addedAt: new Date(),
+        addedAt: now,
       };
 
       if (!existingTrack) {
@@ -201,7 +203,7 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
       const newTrackIds = [...playlist.trackIds, track.id];
       await db.playlists.update(playlistId, {
         trackIds: newTrackIds,
-        updatedAt: new Date(),
+        updatedAt: now,
       });
 
       // Also add to playlistTracks for position tracking
@@ -209,7 +211,7 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
         playlistId,
         trackId: track.id,
         position: newTrackIds.length - 1,
-        addedAt: new Date(),
+        addedAt: now,
       });
 
       set((state) => {
@@ -222,7 +224,7 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
         return {
           playlists: state.playlists.map((p) =>
             p.id === playlistId
-              ? { ...p, trackIds: newTrackIds, updatedAt: new Date() }
+              ? { ...p, trackIds: newTrackIds, updatedAt: now }
               : p
           ),
           playlistTrackArtIds: newArtIds,
@@ -240,9 +242,10 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
       if (!playlist) throw new Error('Playlist not found');
 
       const newTrackIds = playlist.trackIds.filter((id) => id !== trackId);
+      const now = Date.now();
       await db.playlists.update(playlistId, {
         trackIds: newTrackIds,
-        updatedAt: new Date(),
+        updatedAt: now,
       });
 
       // Remove from playlistTracks
@@ -253,7 +256,7 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
       set((state) => ({
         playlists: state.playlists.map((p) =>
           p.id === playlistId
-            ? { ...p, trackIds: newTrackIds, updatedAt: new Date() }
+            ? { ...p, trackIds: newTrackIds, updatedAt: now }
             : p
         ),
       }));
@@ -265,9 +268,10 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
 
   reorderPlaylistTracks: async (playlistId, trackIds) => {
     try {
+      const now = Date.now();
       await db.playlists.update(playlistId, {
         trackIds,
-        updatedAt: new Date(),
+        updatedAt: now,
       });
 
       // Update positions in playlistTracks
@@ -282,7 +286,7 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
       set((state) => ({
         playlists: state.playlists.map((p) =>
           p.id === playlistId
-            ? { ...p, trackIds, updatedAt: new Date() }
+            ? { ...p, trackIds, updatedAt: now }
             : p
         ),
       }));
@@ -312,13 +316,35 @@ export const usePlaylistStore = create<PlaylistState>()((set, get) => ({
     const playlist = await db.playlists.get(id);
     if (!playlist) return undefined;
 
+    // Get playlist track entries to get the addedAt dates
+    const playlistTrackEntries = await db.playlistTracks
+      .where('playlistId')
+      .equals(id)
+      .toArray();
+
+    // Create a map of trackId -> addedAt (playlist-specific date)
+    const playlistAddedAtMap = new Map<number, number>();
+    playlistTrackEntries.forEach(pt => {
+      playlistAddedAtMap.set(pt.trackId, pt.addedAt);
+    });
+
+    // Fetch track metadata from favoriteTracks
     const tracks = await Promise.all(
       playlist.trackIds.map((trackId) => db.favoriteTracks.get(trackId))
     );
 
+    // Override addedAt with the playlist-specific date
+    const tracksWithPlaylistDate = tracks
+      .filter((t): t is FavoriteTrack => t !== undefined)
+      .map(track => ({
+        ...track,
+        // Use playlist addedAt if available, otherwise fall back to track's addedAt
+        addedAt: playlistAddedAtMap.get(track.id) ?? track.addedAt,
+      }));
+
     return {
       ...playlist,
-      tracks: tracks.filter((t): t is FavoriteTrack => t !== undefined),
+      tracks: tracksWithPlaylistDate,
     };
   },
 

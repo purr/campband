@@ -23,7 +23,8 @@ interface SearchState {
   clearRecentSearches: () => void;
 }
 
-const MAX_RECENT_SEARCHES = 10;
+/** Maximum number of recent searches to keep in history */
+const MAX_RECENT_SEARCHES = 50;
 
 export const useSearchStore = create<SearchState>()(
   persist(

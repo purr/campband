@@ -1,8 +1,8 @@
 import { Play, Music } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getDisplayTitle } from '@/lib/utils';
 import { formatTime, formatSmartDate } from '@/lib/utils';
 import { buildArtUrl, ImageSizes } from '@/types';
-import { useContextMenu } from './ContextMenu';
+import { useContextMenu } from './GlobalContextMenu';
 import { HeartButton } from './HeartButton';
 import { AddToQueueButton } from './AddToQueueButton';
 
@@ -32,7 +32,7 @@ interface TrackRowProps {
   showLikeButton?: boolean;
   showQueueButton?: boolean;
   timestamp?: string;
-  addedAt?: Date;
+  addedAt?: number; // Unix timestamp (ms)
   playCount?: number;
   showMeta?: 'timestamp' | 'addedAt' | 'playCount' | 'none';
 }
@@ -54,15 +54,15 @@ export function TrackRow({
   playCount,
   showMeta = 'none',
 }: TrackRowProps) {
-  const { openMenu } = useContextMenu();
+  const { openTrackMenu } = useContextMenu();
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    // Create a track object that includes all necessary fields
+    // Create a track object that includes all necessary fields for context menu
     const trackData = {
       ...track,
       artist: track.artist || track.bandName,
     };
-    openMenu(trackData as any, e);
+    openTrackMenu(e, trackData as any);
   };
 
   const canPlay = !!track.streamUrl;
@@ -72,16 +72,16 @@ export function TrackRow({
     switch (showMeta) {
       case 'timestamp':
         return timestamp ? (
-          <span className="text-xs text-muted flex-shrink-0 min-w-[3rem] text-right">{timestamp}</span>
+          <span className="text-xs text-muted shrink-0 min-w-[3rem] text-right">{timestamp}</span>
         ) : null;
       case 'addedAt':
         return addedAt ? (
-          <span className="text-xs text-muted flex-shrink-0 min-w-[4rem] text-right">{formatSmartDate(addedAt)}</span>
+          <span className="text-xs text-muted shrink-0 min-w-[4rem] text-right">{formatSmartDate(addedAt)}</span>
         ) : null;
       case 'playCount':
         return playCount !== undefined ? (
           <span className={cn(
-            'text-xs flex-shrink-0 min-w-[4rem] text-right',
+            'text-xs shrink-0 min-w-[4rem] text-right',
             playCount > 0 ? 'text-foam' : 'text-muted'
           )}>
             {playCount > 0 ? `${playCount}×` : '—'}
@@ -102,7 +102,7 @@ export function TrackRow({
         onClick={onPlay}
         disabled={!canPlay}
         className={cn(
-          'w-11 h-11 rounded overflow-hidden bg-highlight-med flex-shrink-0 relative group/art',
+          'w-11 h-11 rounded overflow-hidden bg-highlight-med shrink-0 relative group/art',
           !canPlay && 'opacity-50 cursor-not-allowed'
         )}
       >
@@ -136,7 +136,7 @@ export function TrackRow({
             track.albumUrl && 'hover:text-rose  cursor-pointer'
           )}
         >
-          {track.title}
+          {getDisplayTitle(track)}
         </button>
         <div className="flex items-center gap-1 text-xs text-muted truncate">
           <button
@@ -152,7 +152,7 @@ export function TrackRow({
           </button>
           {track.albumTitle && (
             <>
-              <span className="flex-shrink-0">•</span>
+              <span className="shrink-0">•</span>
               <button
                 onClick={onAlbumClick || onTitleClick}
                 disabled={!track.albumUrl}
@@ -173,7 +173,7 @@ export function TrackRow({
       {renderMeta()}
 
       {/* Right section - fixed width for consistent button positioning */}
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         {/* Duration - always render container for consistent spacing */}
         <span className="text-xs text-muted tabular-nums w-14 text-right">
           {track.duration > 0 ? formatTime(track.duration) : ''}

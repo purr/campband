@@ -71,7 +71,7 @@ export function LikedPage() {
 
   return (
     <div className="min-h-full pb-8">
-      <PageHeader title="Liked Songs" />
+      <PageHeader />
 
       <CollectionHeader
         title="Liked Songs"

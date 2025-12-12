@@ -134,9 +134,9 @@ export const useLibraryStore = create<LibraryState>()(
 
         switch (trackSortBy) {
           case 'recent':
-            return tracks.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+            return tracks.sort((a, b) => b.addedAt - a.addedAt);
           case 'oldest':
-            return tracks.sort((a, b) => new Date(a.addedAt).getTime() - new Date(b.addedAt).getTime());
+            return tracks.sort((a, b) => a.addedAt - b.addedAt);
           case 'title':
             return tracks.sort((a, b) => a.title.localeCompare(b.title));
           case 'artist':
@@ -158,9 +158,9 @@ export const useLibraryStore = create<LibraryState>()(
 
         switch (albumSortBy) {
           case 'recent':
-            return albums.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+            return albums.sort((a, b) => b.addedAt - a.addedAt);
           case 'oldest':
-            return albums.sort((a, b) => new Date(a.addedAt).getTime() - new Date(b.addedAt).getTime());
+            return albums.sort((a, b) => a.addedAt - b.addedAt);
           case 'title':
             return albums.sort((a, b) => a.title.localeCompare(b.title));
           case 'artist':
@@ -176,9 +176,9 @@ export const useLibraryStore = create<LibraryState>()(
 
         switch (artistSortBy) {
           case 'recent':
-            return artists.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+            return artists.sort((a, b) => b.addedAt - a.addedAt);
           case 'oldest':
-            return artists.sort((a, b) => new Date(a.addedAt).getTime() - new Date(b.addedAt).getTime());
+            return artists.sort((a, b) => a.addedAt - b.addedAt);
           case 'title':
           case 'artist':
             return artists.sort((a, b) => a.name.localeCompare(b.name));
@@ -231,7 +231,7 @@ export const useLibraryStore = create<LibraryState>()(
           const newStats: TrackStats = {
             trackId,
             playCount: (existing?.playCount || 0) + 1,
-            lastPlayedAt: new Date(),
+            lastPlayedAt: Date.now(),
             totalListenTime: existing?.totalListenTime || 0,
           };
 
@@ -275,7 +275,7 @@ export const useLibraryStore = create<LibraryState>()(
           url: artist.url,
           imageId: artist.imageId,
           location: artist.location,
-          addedAt: new Date(),
+          addedAt: Date.now(),
         };
 
         try {
@@ -317,7 +317,7 @@ export const useLibraryStore = create<LibraryState>()(
           bandId: album.bandId,
           bandUrl: album.bandUrl,
           releaseDate: album.releaseDate,
-          addedAt: new Date(),
+          addedAt: Date.now(),
         };
 
         try {
@@ -366,7 +366,7 @@ export const useLibraryStore = create<LibraryState>()(
           bandUrl: track.bandUrl,
           duration: track.duration,
           streamUrl: track.streamUrl,
-          addedAt: new Date(),
+          addedAt: Date.now(),
           playCount: stats?.playCount || 0,
           lastPlayedAt: stats?.lastPlayedAt,
         };
@@ -408,7 +408,7 @@ export const useLibraryStore = create<LibraryState>()(
 
         const historyEntry: HistoryEntry = {
           ...entry,
-          playedAt: new Date(),
+          playedAt: Date.now(),
           playCount: (existing?.playCount || 0) + 1,
         };
 

@@ -124,7 +124,7 @@ Play in one tab, control from another, OS media keys work. *(Partially complete)
 - [x] Tags section with liquid glass styling
 - [x] Playing indicator (animated equalizer bars)
 - [x] Settings page with sections
-- [x] Audio settings (crossfade, gapless, volume normalization, mono audio)
+- [x] Audio settings (crossfade, gapless, volume normalization)
 - [x] 10-band Equalizer with presets
 - [x] Welcome/Home page
 - [x] Hover states throughout

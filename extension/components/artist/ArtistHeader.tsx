@@ -1,4 +1,4 @@
-import { MapPin, ExternalLink, Shuffle, Play, Heart } from 'lucide-react';
+import { MapPin, ExternalLink, Shuffle, Play, Heart, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button, Skeleton, ImageBackdrop, useUnlikeConfirm } from '@/components/ui';
 import { useLibraryStore, useSettingsStore } from '@/lib/store';
@@ -34,8 +34,10 @@ export function ArtistHeader({ band, releases, isLoading, onPlayAll, onShuffleAl
     }
   };
 
-  // Get first release art as backdrop (use highest quality)
-  const backdropUrl = releases[0]
+  // Get backdrop: prefer artist's custom background, fallback to first release art
+  const backdropUrl = band.backgroundImageId
+    ? buildBioUrl(band.backgroundImageId, ImageSizes.LARGE_1200)
+    : releases[0]
     ? getArtworkUrl({ artId: releases[0].artId, artUrl: releases[0].artUrl, size: ImageSizes.LARGE_1200 })
     : null;
 
@@ -48,12 +50,12 @@ export function ArtistHeader({ band, releases, isLoading, onPlayAll, onShuffleAl
 
   return (
     <div className="relative">
-      {/* Backdrop - glassy blurred image with gradient fade */}
+      {/* Backdrop - liquid glass banner with artist's custom background */}
       <ImageBackdrop
         imageUrl={backdropUrl}
-        blur="3xl"
-        scale={1.4}
-        opacity={0.5}
+        blur="sm"
+        scale={1}
+        opacity={0.9}
         accentGlow="iris"
       />
 
@@ -61,7 +63,7 @@ export function ArtistHeader({ band, releases, isLoading, onPlayAll, onShuffleAl
       <div className="relative z-10 px-8 pt-12 pb-8">
         <div className="flex items-end gap-6">
           {/* Avatar - crops vertical images, never stretches */}
-          <div className="w-48 h-48 rounded-full overflow-hidden bg-surface shadow-2xl flex-shrink-0 ring-4 ring-highlight-low relative">
+          <div className="w-48 h-48 rounded-full overflow-hidden bg-surface shadow-2xl shrink-0 ring-4 ring-highlight-low relative">
             {avatarUrl ? (
               <img
                 src={avatarUrl}
@@ -69,7 +71,7 @@ export function ArtistHeader({ band, releases, isLoading, onPlayAll, onShuffleAl
                 className="absolute inset-0 w-full h-full object-cover object-center"
               />
             ) : (
-              <div className="w-full h-full bg-gradient-to-br from-rose/30 to-iris/30 flex items-center justify-center text-6xl font-bold text-text">
+              <div className="w-full h-full bg-linear-to-br from-rose/30 to-iris/30 flex items-center justify-center text-6xl font-bold text-text">
                 {band.name.charAt(0)}
               </div>
             )}
@@ -143,8 +145,12 @@ export function ArtistHeader({ band, releases, isLoading, onPlayAll, onShuffleAl
             disabled={isLoading}
             className="gap-2"
           >
+            {isLoading ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
             <Play size={18} fill="currentColor" />
-            Play All
+            )}
+            {isLoading ? 'Loading...' : 'Play All'}
           </Button>
 
           <Button
@@ -153,7 +159,11 @@ export function ArtistHeader({ band, releases, isLoading, onPlayAll, onShuffleAl
             disabled={isLoading}
             className="gap-2"
           >
+            {isLoading ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
             <Shuffle size={18} />
+            )}
             Shuffle
           </Button>
 

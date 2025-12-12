@@ -146,10 +146,12 @@
 - ⏸️ History UI hidden for cleaner sidebar design (data still tracked)
 
 ### Caching
-- ✅ Cache tables in database schema (ready for use)
-- ✅ Implement artist metadata caching (memory + IndexedDB, 1hr TTL)
-- ✅ Implement album/track metadata caching (memory + IndexedDB, 24hr TTL)
-- ✅ Cache invalidation strategy (TTL-based, automatic expiry)
+- ✅ Cache tables in database schema (permanent cache)
+- ✅ Implement artist metadata caching (memory + IndexedDB, permanent)
+- ✅ Implement album/track metadata caching (memory + IndexedDB, permanent)
+- ✅ Pre-cache all releases when visiting artist page (background)
+- ✅ New release detection (background check every 10 min per artist)
+- ✅ Instant "Play All" after first visit (all tracks cached)
 - [ ] User settings for cache size
 
 ---
@@ -189,7 +191,7 @@
 - ✅ Volume popup redesigned (liquid glass via portal)
 - ✅ Progress bar smooth animation (requestAnimationFrame)
 - ✅ Playing indicator (animated equalizer bars) on all track covers
-- ✅ JavaScript smooth scrolling (useSmoothScroll hook with velocity + friction)
+- [ ] JavaScript smooth scrolling (removed for reimplementation)
 - ✅ Rose Pine cursors and selection colors
 - [ ] Focus states (accessibility)
 - [ ] Full responsive design (mobile)
@@ -197,13 +199,12 @@
 
 ### Settings
 - ✅ Settings page with sectioned design
-- ✅ Audio settings UI (crossfade, gapless playback, volume normalization, mono audio)
+- ✅ Audio settings UI (crossfade, gapless playback, volume normalization)
 - ✅ Equalizer with presets and custom 10-band EQ
 - ✅ Crossfade implementation (Web Audio API with cosine-eased fade)
 - ✅ Gapless playback (preloading next track)
-- ✅ Web Audio API integration (EQ filters, compressor, mono mix)
+- ✅ Web Audio API integration (compressor for volume normalization)
 - ✅ Volume normalization (DynamicsCompressorNode)
-- ✅ Mono audio (ChannelSplitter/Merger)
 - ✅ Data Export/Import (likes, playlists, following, settings, with optional cover images)
 - [ ] Cache settings
 - [ ] Theme customization
@@ -275,7 +276,7 @@
 - ✅ Sidebar collapse/expand animation smoothed (opacity + width transition)
 - ✅ Following & Liked Songs now sticky in sidebar (like Home/Search)
 - ✅ Liked Songs context menu (Play, Play Next, Add to Queue)
-- ✅ JavaScript smooth scrolling (useSmoothScroll hook with velocity + friction)
+- [ ] JavaScript smooth scrolling (removed for reimplementation)
 - ✅ Audio elements appended to DOM for Auto-Stop Media extension compatibility
 - ✅ Queue panel shows shuffle/repeat mode buttons (synced with player bar)
 - ✅ Queue panel dims "Next Up" when single track loop is active
@@ -285,25 +286,35 @@
 - ✅ Responsive track list columns (hide Added → Album → Duration as page narrows)
 - ✅ Sortable track list columns (click to sort by title, album, added, duration)
 - ✅ Duration column uses clock icon (permanent), other columns use text
-- ✅ Artist/release caching system (memory + IndexedDB) for instant re-navigation
+- ✅ Artist/release caching system (permanent, memory + IndexedDB) for instant loading
+- ✅ New release detection (background check every 10 min, fetches /music page only)
+- ✅ Pre-caches all releases in background for instant "Play All"
+- ✅ Fixed artist page only showing 1 release (URL path handling bug)
+- ✅ Cache-busting for fresh data (no-store, redirect follow)
+- ✅ Search fallback: tries query as subdomain if no results (direct artist lookup)
+- ✅ Fixed playback state sync after dev server hot reload
 - ✅ Play All loads ALL artist releases (not just 5 or 10)
 - ✅ Playlist picker submenu positioning fixed (stays in viewport)
 - ✅ Unlike confirmation modal fixed (stale closure bug)
 - ✅ Enter key support for confirmation dialogs
 - ✅ Data Export/Import feature (likes, playlists, following, settings, optional covers)
+- ✅ Hot reload audio persistence (music keeps playing during dev server reloads)
+- ✅ Codebase cleanup: removed dead code (empty files, legacy ContextMenu system)
+- ✅ Unified context menu system (GlobalContextMenu handles all right-click menus)
+- ✅ Debug logging wrapped in DEBUG_HOT_RELOAD flag
+- ✅ File header comments added to large/complex files
 
 ## Audio Engine (December 2024)
 Full Web Audio API implementation:
 - ✅ **Crossfade**: Smooth cosine-eased fade between tracks (default 4s)
 - ✅ **Volume Normalization**: DynamicsCompressorNode for consistent loudness
-- ✅ **Mono Audio**: ChannelSplitter/Merger for accessibility
 - ✅ **10-band Equalizer**: BiquadFilterNodes at standard frequencies (32Hz-16kHz)
 - ✅ **Gapless Playback**: Preloads next track, starts 300ms before current ends
 - ✅ **Loop Track Crossfade**: Crossfades back to start when looping single track
 
 ---
 
-*Last updated: December 11, 2024*
+*Last updated: December 12, 2025*
 
 ---
 

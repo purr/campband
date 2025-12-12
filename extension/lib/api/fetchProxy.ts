@@ -1,9 +1,9 @@
 /**
  * Fetch Proxy Utility
- * 
+ *
  * Detects whether we're running in an extension page or content script context,
  * and routes fetch requests accordingly.
- * 
+ *
  * - Extension page: Direct fetch (has host_permissions)
  * - Content script: Proxy through background script (to bypass CORS)
  */
@@ -18,14 +18,29 @@ function isContentScriptContext(): boolean {
   return !protocol.startsWith('moz-extension') && !protocol.startsWith('chrome-extension');
 }
 
+/** Minimal response interface for our needs */
+interface ProxyResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  url: string;
+  text(): Promise<string>;
+  json(): Promise<unknown>;
+}
+
 /**
  * Fetch that works in both extension and content script contexts
  * In content script context, routes through background script to bypass CORS
+ * Always bypasses browser cache to ensure fresh data
  */
-export async function proxyFetch(url: string, options?: RequestInit): Promise<Response> {
+export async function proxyFetch(url: string, options?: RequestInit): Promise<ProxyResponse> {
   if (!isContentScriptContext()) {
-    // Direct fetch in extension context
-    return fetch(url, options);
+    // Direct fetch in extension context - bypass cache for fresh data
+    return fetch(url, {
+      ...options,
+      cache: 'no-store',
+      redirect: 'follow',
+    });
   }
 
   // In content script - proxy through background
@@ -49,9 +64,8 @@ export async function proxyFetch(url: string, options?: RequestInit): Promise<Re
 
 /**
  * Response wrapper for proxied fetch results
- * Implements the Response interface methods we need
  */
-class ProxiedResponse implements Pick<Response, 'ok' | 'status' | 'statusText' | 'url' | 'text' | 'json'> {
+class ProxiedResponse implements ProxyResponse {
   readonly ok: boolean;
   readonly status: number;
   readonly statusText: string;

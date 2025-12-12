@@ -1,11 +1,10 @@
 import { create } from 'zustand';
 import type { ArtistPage, Album, Track } from '@/types';
-import { fetchArtistPage, fetchReleasePage, type FetchProgress } from '@/lib/api';
-import { db } from '@/lib/db';
+import { fetchArtistPage, fetchReleasePage, fetchArtistReleaseList, type FetchProgress } from '@/lib/api';
+import { db, type CachedArtist, type CachedAlbum } from '@/lib/db';
 
-// Cache duration: 1 hour for artist pages, 24 hours for album metadata
-const ARTIST_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
-const ALBUM_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+// How often to check for new releases (10 minutes)
+const NEW_RELEASE_CHECK_INTERVAL = 10 * 60 * 1000;
 
 interface ArtistState {
   // In-memory cache for quick access during session
@@ -19,6 +18,7 @@ interface ArtistState {
   // Loading state
   isLoading: boolean;
   isLoadingReleases: boolean;
+  isCheckingNewReleases: boolean;
   loadProgress: FetchProgress | null;
   error: string | null;
 
@@ -33,7 +33,7 @@ interface ArtistState {
 
   // Cache management
   clearCache: () => void;
-  getCacheStats: () => { artists: number; albums: number };
+  getCacheStats: () => Promise<{ artists: number; albums: number }>;
 }
 
 export const useArtistStore = create<ArtistState>((set, get) => ({
@@ -43,50 +43,42 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
   currentArtistUrl: null,
   isLoading: false,
   isLoadingReleases: false,
+  isCheckingNewReleases: false,
   loadProgress: null,
   error: null,
 
   loadArtist: async (url, forceRefresh = false) => {
-    const { artistCache } = get();
+    const { artistCache, loadRelease } = get();
     const now = Date.now();
 
     // Normalize URL for consistent caching
     const normalizedUrl = url.replace(/\/?$/, '');
 
     // Check in-memory cache first (fastest)
-    if (!forceRefresh) {
-      const cached = artistCache.get(normalizedUrl);
-      if (cached && (now - cached.fetchedAt) < ARTIST_CACHE_DURATION) {
+    const memoryCached = artistCache.get(normalizedUrl);
+    if (memoryCached && !forceRefresh) {
         console.log('[ArtistStore] Using memory cache for:', normalizedUrl);
-        set({ currentArtist: cached.artist, currentArtistUrl: normalizedUrl, isLoading: false, error: null });
-        return cached.artist;
-      }
+      set({ currentArtist: memoryCached.artist, currentArtistUrl: normalizedUrl, isLoading: false, error: null });
+
+      // Check for new releases in background if needed
+      checkForNewReleasesInBackground(normalizedUrl, memoryCached.artist, now);
+
+      return memoryCached.artist;
     }
 
-    // Check IndexedDB cache
+    // Check IndexedDB cache (permanent storage)
     if (!forceRefresh) {
       try {
-        // Extract band ID from URL for lookup (we'll use URL as key instead)
-        const dbCached = await db.cachedArtists.where('id').above(0).first();
-        // Actually we need a different approach - let's check by iterating
-        const allCached = await db.cachedArtists.toArray();
-        const dbEntry = allCached.find(entry => {
-          try {
-            const data = JSON.parse(entry.data) as ArtistPage;
-            return data.band.url.replace(/\/?$/, '') === normalizedUrl;
-          } catch {
-            return false;
-          }
-        });
+        const dbEntry = await db.cachedArtists.where('url').equals(normalizedUrl).first();
 
-        if (dbEntry && dbEntry.expiresAt > new Date()) {
+        if (dbEntry) {
           console.log('[ArtistStore] Using IndexedDB cache for:', normalizedUrl);
           const artist = JSON.parse(dbEntry.data) as ArtistPage;
 
-          // Also update memory cache
+          // Update memory cache
           set(state => {
             const newCache = new Map(state.artistCache);
-            newCache.set(normalizedUrl, { artist, fetchedAt: dbEntry.cachedAt.getTime() });
+            newCache.set(normalizedUrl, { artist, fetchedAt: dbEntry.cachedAt });
             return {
               artistCache: newCache,
               currentArtist: artist,
@@ -95,6 +87,12 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
               error: null
             };
           });
+
+          // Check for new releases in background if lastCheckedAt > 10 min ago
+          if (now - dbEntry.lastCheckedAt > NEW_RELEASE_CHECK_INTERVAL) {
+            checkForNewReleasesInBackground(normalizedUrl, artist, now, dbEntry);
+          }
+
           return artist;
         }
       } catch (e) {
@@ -102,7 +100,7 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
       }
     }
 
-    // Fetch fresh data
+    // No cache found - fetch fresh data
     set({ isLoading: true, error: null });
 
     try {
@@ -121,13 +119,22 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
         };
       });
 
-      // Save to IndexedDB (async, don't await)
-      db.cachedArtists.put({
+      // Save to IndexedDB (permanent cache)
+      const cacheEntry: CachedArtist = {
         id: artist.band.id,
+        url: normalizedUrl,
         data: JSON.stringify(artist),
-        cachedAt: new Date(),
-        expiresAt: new Date(now + ARTIST_CACHE_DURATION),
-      }).catch(e => console.warn('[ArtistStore] Failed to save to IndexedDB:', e));
+        cachedAt: now,
+        lastCheckedAt: now,
+        releaseCount: artist.releases.length,
+      };
+      db.cachedArtists.put(cacheEntry).catch(e =>
+        console.warn('[ArtistStore] Failed to save to IndexedDB:', e)
+      );
+
+      // Pre-cache all releases in background for instant playback
+      console.log('[ArtistStore] Pre-caching releases in background...');
+      preCacheReleasesInBackground(artist);
 
       return artist;
     } catch (error) {
@@ -143,25 +150,30 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
   loadRelease: async (releaseUrl, releaseId) => {
     const { releaseCache } = get();
     const now = Date.now();
+    const normalizedUrl = releaseUrl.replace(/\/?$/, '');
 
     // Check memory cache first
-    const cached = releaseCache.get(releaseId);
-    if (cached && (now - cached.fetchedAt) < ALBUM_CACHE_DURATION) {
+    const memoryCached = releaseCache.get(releaseId);
+    if (memoryCached) {
       console.log('[ArtistStore] Using memory cache for release:', releaseId);
-      return cached.album;
+      return memoryCached.album;
     }
 
-    // Check IndexedDB cache
+    // Check IndexedDB cache (permanent) - check both by ID and by URL for cross-store compatibility
     try {
-      const dbCached = await db.cachedAlbums.get(releaseId);
-      if (dbCached && dbCached.expiresAt > new Date()) {
+      let dbCached = await db.cachedAlbums.get(releaseId);
+      if (!dbCached) {
+        // Also try URL lookup (in case albumStore cached it)
+        dbCached = await db.cachedAlbums.where('url').equals(normalizedUrl).first();
+      }
+      if (dbCached) {
         console.log('[ArtistStore] Using IndexedDB cache for release:', releaseId);
         const album = JSON.parse(dbCached.data) as Album;
 
         // Update memory cache
         set(state => {
           const newCache = new Map(state.releaseCache);
-          newCache.set(releaseId, { album, fetchedAt: dbCached.cachedAt.getTime() });
+          newCache.set(releaseId, { album, fetchedAt: dbCached.cachedAt });
           return { releaseCache: newCache };
         });
         return album;
@@ -172,7 +184,7 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
 
     // Fetch fresh data
     try {
-      console.log('[ArtistStore] Fetching fresh release:', releaseId);
+      console.log('[ArtistStore] Fetching release:', releaseId);
       const release = await fetchReleasePage(releaseUrl);
 
       // Update memory cache
@@ -182,14 +194,16 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
         return { releaseCache: newCache };
       });
 
-      // Save to IndexedDB (async, don't await)
-      db.cachedAlbums.put({
+      // Save to IndexedDB (permanent cache) - use normalized URL for cross-store compatibility
+      const cacheEntry: CachedAlbum = {
         id: releaseId,
-        url: releaseUrl,
+        url: normalizedUrl,
         data: JSON.stringify(release),
-        cachedAt: new Date(),
-        expiresAt: new Date(now + ALBUM_CACHE_DURATION),
-      }).catch(e => console.warn('[ArtistStore] Failed to save release to IndexedDB:', e));
+        cachedAt: now,
+      };
+      db.cachedAlbums.put(cacheEntry).catch(e =>
+        console.warn('[ArtistStore] Failed to save release to IndexedDB:', e)
+      );
 
       return release;
     } catch (error) {
@@ -231,8 +245,7 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
 
   /**
    * Load an artist's releases for playback (Play All, Add to Queue, etc.)
-   * This loads all releases (or up to maxReleases) and returns streamable tracks.
-   * Uses caching to avoid re-fetching.
+   * Uses permanent cache - should be instant if previously visited!
    */
   loadArtistReleasesForPlayback: async (artistUrl, maxReleases) => {
     const { loadArtist, loadRelease } = get();
@@ -249,7 +262,7 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
     console.log(`[ArtistStore] Loading ${releasesToLoad.length} releases for playback`);
 
     // Load releases in parallel batches for speed
-    const BATCH_SIZE = 3;
+    const BATCH_SIZE = 5; // Increased batch size since most should be cached
     for (let i = 0; i < releasesToLoad.length; i += BATCH_SIZE) {
       const batch = releasesToLoad.slice(i, i + BATCH_SIZE);
 
@@ -264,9 +277,9 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
         }
       }
 
-      // Small delay between batches
+      // Small delay between batches only if fetching (not from cache)
       if (i + BATCH_SIZE < releasesToLoad.length) {
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 50));
       }
     }
 
@@ -306,11 +319,135 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
     db.cachedAlbums.clear().catch(console.error);
   },
 
-  getCacheStats: () => {
-    const { artistCache, releaseCache } = get();
+  getCacheStats: async () => {
+    const artistCount = await db.cachedArtists.count();
+    const albumCount = await db.cachedAlbums.count();
     return {
-      artists: artistCache.size,
-      albums: releaseCache.size,
+      artists: artistCount,
+      albums: albumCount,
     };
   },
 }));
+
+/**
+ * Check for new releases in background (doesn't block UI)
+ * Only fetches the release list, not full album data
+ */
+async function checkForNewReleasesInBackground(
+  normalizedUrl: string,
+  cachedArtist: ArtistPage,
+  now: number,
+  dbEntry?: CachedArtist
+) {
+  const store = useArtistStore.getState();
+
+  // Don't check if already checking
+  if (store.isCheckingNewReleases) return;
+
+  useArtistStore.setState({ isCheckingNewReleases: true });
+
+  try {
+    console.log('[ArtistStore] Checking for new releases:', normalizedUrl);
+
+    // Fetch just the release list (quick request to /music page)
+    const releaseList = await fetchArtistReleaseList(normalizedUrl);
+
+    if (!releaseList) {
+      console.log('[ArtistStore] Could not fetch release list');
+      return;
+    }
+
+    const cachedReleaseCount = dbEntry?.releaseCount ?? cachedArtist.releases.length;
+    const newReleaseCount = releaseList.length;
+
+    // Update lastCheckedAt in DB
+    if (dbEntry) {
+      await db.cachedArtists.update(dbEntry.id, {
+        lastCheckedAt: now,
+        releaseCount: newReleaseCount,
+      });
+    }
+
+    // Check if there are new releases
+    if (newReleaseCount > cachedReleaseCount) {
+      console.log(`[ArtistStore] Found ${newReleaseCount - cachedReleaseCount} new release(s)!`);
+
+      // Find the new releases (ones not in cache)
+      const cachedIds = new Set(cachedArtist.releases.map(r => r.itemId));
+      const newReleases = releaseList.filter(r => !cachedIds.has(r.itemId));
+
+      if (newReleases.length > 0) {
+        // Update the cached artist with new releases
+        const updatedArtist: ArtistPage = {
+          ...cachedArtist,
+          releases: releaseList,
+          totalReleases: newReleaseCount,
+        };
+
+        // Update memory cache
+        useArtistStore.setState(state => {
+          const newCache = new Map(state.artistCache);
+          newCache.set(normalizedUrl, { artist: updatedArtist, fetchedAt: now });
+
+          // Update current artist if it's the same
+          const shouldUpdateCurrent = state.currentArtistUrl === normalizedUrl;
+
+          return {
+            artistCache: newCache,
+            currentArtist: shouldUpdateCurrent ? updatedArtist : state.currentArtist,
+          };
+        });
+
+        // Update IndexedDB
+        if (dbEntry) {
+          await db.cachedArtists.update(dbEntry.id, {
+            data: JSON.stringify(updatedArtist),
+            releaseCount: newReleaseCount,
+          });
+        }
+
+        // Fetch and cache the new releases in background
+        for (const release of newReleases) {
+          try {
+            await store.loadRelease(release.url, release.itemId);
+            await new Promise(r => setTimeout(r, 200)); // Rate limit
+          } catch (e) {
+            console.warn('[ArtistStore] Failed to cache new release:', release.title);
+          }
+        }
+      }
+    } else {
+      console.log('[ArtistStore] No new releases found');
+    }
+  } catch (error) {
+    console.warn('[ArtistStore] Failed to check for new releases:', error);
+  } finally {
+    useArtistStore.setState({ isCheckingNewReleases: false });
+  }
+}
+
+/**
+ * Pre-cache all releases for an artist in background
+ * Called after first fetch of an artist
+ */
+async function preCacheReleasesInBackground(artist: ArtistPage) {
+  const store = useArtistStore.getState();
+
+  for (const release of artist.releases) {
+    try {
+      // Check if already cached
+      const cached = await db.cachedAlbums.get(release.itemId);
+      if (cached) continue;
+
+      // Fetch and cache
+      await store.loadRelease(release.url, release.itemId);
+
+      // Rate limit to avoid hammering Bandcamp
+      await new Promise(r => setTimeout(r, 300));
+    } catch (e) {
+      console.warn('[ArtistStore] Failed to pre-cache release:', release.title);
+    }
+  }
+
+  console.log('[ArtistStore] Finished pre-caching releases for:', artist.band.name);
+}

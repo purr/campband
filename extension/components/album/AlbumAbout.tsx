@@ -47,7 +47,7 @@ export function AlbumAbout({ about, credits, tags }: AlbumAboutProps) {
 
         {/* Gradient fade */}
         {!expanded && hasLongText && (
-          <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-base to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 h-16 bg-linear-to-t from-base to-transparent" />
         )}
       </div>
 

@@ -4,13 +4,15 @@ import Dexie, { type Table } from 'dexie';
 // Types
 // ============================================
 
+// All timestamps are Unix timestamps in milliseconds (Date.now())
+
 export interface FavoriteArtist {
   id: number;           // bandId
   name: string;
   url: string;
   imageId?: number;
   location?: string;
-  addedAt: Date;
+  addedAt: number;      // Unix timestamp (ms)
 }
 
 export interface FavoriteAlbum {
@@ -22,7 +24,7 @@ export interface FavoriteAlbum {
   bandId: number;
   bandUrl?: string;
   releaseDate?: string;
-  addedAt: Date;
+  addedAt: number;      // Unix timestamp (ms)
 }
 
 export interface FavoriteTrack {
@@ -38,9 +40,9 @@ export interface FavoriteTrack {
   bandUrl?: string;     // Full URL to artist page
   duration: number;
   streamUrl?: string;
-  addedAt: Date;
+  addedAt: number;      // Unix timestamp (ms)
   playCount?: number;   // How many times this track was played
-  lastPlayedAt?: Date;  // When was this track last played
+  lastPlayedAt?: number; // Unix timestamp (ms)
 }
 
 export interface Playlist {
@@ -49,8 +51,8 @@ export interface Playlist {
   description?: string;
   coverImage?: string;  // Base64 or URL to custom cover image
   trackIds: number[];   // Array of track IDs
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: number;    // Unix timestamp (ms)
+  updatedAt: number;    // Unix timestamp (ms)
 }
 
 export interface PlaylistTrack {
@@ -58,7 +60,7 @@ export interface PlaylistTrack {
   playlistId: number;
   trackId: number;
   position: number;     // Order in playlist
-  addedAt: Date;
+  addedAt: number;      // Unix timestamp (ms)
 }
 
 export interface HistoryEntry {
@@ -70,7 +72,7 @@ export interface HistoryEntry {
   artId?: number;
   albumUrl?: string;    // For tracks: URL to album page
   bandUrl?: string;     // URL to artist page
-  playedAt: Date;
+  playedAt: number;     // Unix timestamp (ms)
   playCount?: number;   // How many times this specific item was played
 }
 
@@ -78,23 +80,24 @@ export interface HistoryEntry {
 export interface TrackStats {
   trackId: number;      // Primary key
   playCount: number;
-  lastPlayedAt: Date;
+  lastPlayedAt: number; // Unix timestamp (ms)
   totalListenTime: number; // In seconds
 }
 
 export interface CachedArtist {
   id: number;           // bandId
+  url: string;          // Normalized artist URL for lookup
   data: string;         // JSON string of ArtistPage
-  cachedAt: Date;
-  expiresAt: Date;
+  cachedAt: number;     // Unix timestamp (ms) - when first cached
+  lastCheckedAt: number; // Unix timestamp (ms) - when last checked for new releases
+  releaseCount: number; // Number of releases at last check (for detecting new releases)
 }
 
 export interface CachedAlbum {
   id: number;           // albumId
-  url: string;
+  url: string;          // Album URL for lookup
   data: string;         // JSON string of Album
-  cachedAt: Date;
-  expiresAt: Date;
+  cachedAt: number;     // Unix timestamp (ms) - when cached (permanent)
 }
 
 // ============================================
@@ -153,6 +156,35 @@ export class CampBandDB extends Dexie {
       // Cache
       cachedArtists: 'id, cachedAt, expiresAt',
       cachedAlbums: 'id, url, cachedAt, expiresAt',
+    });
+
+    // Version 3: Permanent caching with new release detection
+    // Clear old cache data during upgrade (schema changed significantly)
+    this.version(3).stores({
+      // Favorites - indexed by id for quick lookup
+      favoriteArtists: 'id, name, addedAt',
+      favoriteAlbums: 'id, title, artist, bandId, addedAt',
+      favoriteTracks: 'id, title, artist, bandId, albumId, addedAt, playCount, lastPlayedAt',
+
+      // Playlists
+      playlists: '++id, name, createdAt, updatedAt',
+      playlistTracks: '++id, playlistId, trackId, position',
+
+      // History - indexed for quick recent lookups
+      history: '++id, type, itemId, playedAt',
+
+      // Track statistics
+      trackStats: 'trackId, playCount, lastPlayedAt',
+
+      // Permanent cache - no expiry, just lastCheckedAt for new release detection
+      cachedArtists: 'id, url, cachedAt, lastCheckedAt',
+      cachedAlbums: 'id, url, cachedAt',
+    }).upgrade(async tx => {
+      // Clear old cache data that doesn't have the new schema fields
+      // This ensures fresh data is fetched with the new caching system
+      console.log('[DB] Migrating to v3: Clearing old cache data');
+      await tx.table('cachedArtists').clear();
+      await tx.table('cachedAlbums').clear();
     });
   }
 }

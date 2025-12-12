@@ -22,6 +22,7 @@ export interface Band {
   url: string;
   accountId?: number;
   imageId?: number;
+  backgroundImageId?: number;  // Custom background image ID (for artist page)
   location?: string;
   bio?: string;
   links?: BandLink[];
@@ -56,6 +57,14 @@ export interface Track {
   bandId?: number;
   bandName?: string;
   bandUrl?: string;
+
+  /**
+   * Display title with artist prefix removed (if present)
+   * Computed field - set by cleanTrackTitle() when track is processed
+   * Example: "Sadness - Song" with artist "Sadness" → displayTitle = "Song"
+   * If no prefix found, equals the original title
+   */
+  displayTitle?: string;
 
   // Flags
   hasLyrics: boolean;

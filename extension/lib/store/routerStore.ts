@@ -32,15 +32,16 @@ function isSameRoute(a: Route, b: Route): boolean {
 
 interface RouterState {
   currentRoute: Route;
+  previousRoute: Route | null;
   isInitialized: boolean;
-  
+
   // Navigation
   navigate: (route: Route, options?: { replace?: boolean }) => void;
-  
+
   // Browser history integration
   goBack: () => void;
   goForward: () => void;
-  
+
   // Internal
   _setRouteFromHash: (route: Route) => void;
   _initialize: () => void;
@@ -48,6 +49,7 @@ interface RouterState {
 
 export const useRouterStore = create<RouterState>()((set, get) => ({
   currentRoute: { name: 'home' },
+  previousRoute: null,
   isInitialized: false,
 
   navigate: (route, options) => {
@@ -60,19 +62,39 @@ export const useRouterStore = create<RouterState>()((set, get) => ({
 
     // Update URL hash (this triggers browser history)
     const hash = routeToHash(route);
-    
+
     if (options?.replace) {
       window.history.replaceState(null, '', hash);
     } else {
       window.history.pushState(null, '', hash);
     }
 
-    // Update state
-    set({ currentRoute: route });
+    // Update state - track previous route
+    set({
+      currentRoute: route,
+      previousRoute: currentRoute,
+    });
   },
 
   goBack: () => {
-    window.history.back();
+    const { previousRoute } = get();
+    if (previousRoute) {
+      // Navigate to previous route without adding to history
+      const hash = routeToHash(previousRoute);
+      window.history.replaceState(null, '', hash);
+      set({
+        currentRoute: previousRoute,
+        previousRoute: null, // Clear so we don't loop
+      });
+    } else {
+      // Fallback to home
+      const hash = routeToHash({ name: 'home' });
+      window.history.replaceState(null, '', hash);
+      set({
+        currentRoute: { name: 'home' },
+        previousRoute: null,
+      });
+    }
   },
 
   goForward: () => {
@@ -90,13 +112,13 @@ export const useRouterStore = create<RouterState>()((set, get) => ({
     // Read initial route from URL hash
     const hash = window.location.hash;
     const initialRoute = hash ? hashToRoute(hash) : { name: 'home' as const };
-    
+
     // If no hash, set it to home
     if (!hash || hash === '#' || hash === '#/') {
       window.history.replaceState(null, '', '#/');
     }
 
-    set({ 
+    set({
       currentRoute: initialRoute,
       isInitialized: true,
     });

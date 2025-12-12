@@ -22,7 +22,7 @@ interface PlayerState {
   repeat: RepeatMode;
 
   // Actions
-  setCurrentTrack: (track: Track | null) => void;
+  setCurrentTrack: (track: Track | null, resetTime?: boolean) => void;
   setIsPlaying: (playing: boolean) => void;
   setIsBuffering: (buffering: boolean) => void;
   setCurrentTime: (time: number) => void;
@@ -57,7 +57,12 @@ export const usePlayerStore = create<PlayerState>()(
       repeat: 'off',
 
       // Setters
-      setCurrentTrack: (track) => set({ currentTrack: track, currentTime: 0, duration: track?.duration || 0 }),
+      setCurrentTrack: (track, resetTime = true) => set((state) => ({
+        currentTrack: track,
+        // Only reset time if explicitly requested (not when restoring from storage)
+        currentTime: resetTime ? 0 : state.currentTime,
+        duration: track?.duration || state.duration || 0,
+      })),
       setIsPlaying: (isPlaying) => set({ isPlaying }),
       setIsBuffering: (isBuffering) => set({ isBuffering }),
       setCurrentTime: (currentTime) => set({ currentTime }),
@@ -85,13 +90,15 @@ export const usePlayerStore = create<PlayerState>()(
     {
       name: 'campband-player',
       partialize: (state) => ({
-        // Persist track info and settings, but NOT playback state
+        // Persist track info, playback position, and settings
         currentTrack: state.currentTrack,
+        currentTime: state.currentTime,  // Resume from where we left off
+        duration: state.duration,
         volume: state.volume,
         isMuted: state.isMuted,
         shuffle: state.shuffle,
         repeat: state.repeat,
-        // Don't persist: isPlaying, isBuffering, currentTime, duration, error
+        // Don't persist: isPlaying (start paused), isBuffering, error
       }),
     }
   )

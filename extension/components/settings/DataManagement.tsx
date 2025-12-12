@@ -40,7 +40,7 @@ function Checkbox({ id, label, description, icon, checked, onChange, disabled }:
         disabled && 'opacity-50 cursor-not-allowed'
       )}
     >
-      <div className={cn('flex-shrink-0 mt-0.5', checked ? 'text-rose' : 'text-text/60')}>
+      <div className={cn('shrink-0 mt-0.5', checked ? 'text-rose' : 'text-text/60')}>
         {icon}
       </div>
       <div className="flex-1 min-w-0">
@@ -53,7 +53,7 @@ function Checkbox({ id, label, description, icon, checked, onChange, disabled }:
           <p className="text-xs text-text/50 mt-0.5">{description}</p>
         )}
       </div>
-      <div className="flex-shrink-0">
+      <div className="shrink-0">
         <input
           type="checkbox"
           id={id}

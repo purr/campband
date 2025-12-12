@@ -84,7 +84,7 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
   if (error && !isReady) {
     return (
       <div className="min-h-full">
-        <PageHeader title="Album" />
+        <PageHeader />
         <div className="flex flex-col items-center justify-center p-8 pt-24">
           <Music size={48} className="mb-4 text-muted opacity-50" />
         <p className="text-love text-lg mb-2">Failed to load album</p>
@@ -111,7 +111,7 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
 
   return (
     <div className="min-h-full pb-8">
-      <PageHeader title={currentAlbum.title} />
+      <PageHeader />
 
       <CollectionHeader
         title={currentAlbum.title}

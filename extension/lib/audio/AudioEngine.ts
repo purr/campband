@@ -1,402 +1,148 @@
 /**
- * AudioEngine - Full-featured audio playback with Web Audio API
+ * AudioEngine - Main audio playback orchestrator
  *
- * Features:
- * - Crossfade between tracks
- * - 10-band Equalizer
- * - Volume Normalization (via compressor)
- * - Mono Audio mixing
- * - Gapless Playback
+ * Uses modular components:
+ * - AudioGraph: Web Audio API processing (EQ, compressor, gain)
+ * - AudioElement: HTMLAudioElement wrapper
+ * - AudioCrossfade: Crossfade transitions
+ *
+ * ALL audio goes through the processing pipeline for consistent effects.
  */
 
-type AudioEventCallback = () => void;
-type AudioProgressCallback = (currentTime: number, duration: number) => void;
-type AudioErrorCallback = (error: string) => void;
+import { AudioGraph, type EqSettings, type EqBand, EQ_PRESETS, type EqPresetName, DEFAULT_EQ_SETTINGS } from './AudioGraph';
+import { AudioElement } from './AudioElement';
+import type { AudioCallbacks, AudioSettings, AudioState } from './types';
+import { DEFAULT_SETTINGS } from './types';
 
-interface AudioCallbacks {
-  onPlay?: AudioEventCallback;
-  onPause?: AudioEventCallback;
-  onEnded?: AudioEventCallback;
-  onTimeUpdate?: AudioProgressCallback;
-  onDurationChange?: (duration: number) => void;
-  onError?: AudioErrorCallback;
-  onLoadStart?: AudioEventCallback;
-  onCanPlay?: AudioEventCallback;
-  onCrossfadeStart?: () => void;
-}
-
-interface AudioSettings {
-  crossfadeEnabled: boolean;
-  crossfadeDuration: number;
-  equalizerEnabled: boolean;
-  eqGains: number[];
-  volumeNormalization: boolean;
-  monoAudio: boolean;
-  gaplessPlayback: boolean;
-}
-
-// Standard 10-band EQ frequencies
-const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+// Re-export for convenience
+export { EQ_FREQUENCIES, EQ_PRESETS, DEFAULT_EQ_SETTINGS } from './AudioGraph';
+export type { EqSettings, EqBand, EqPresetName } from './AudioGraph';
 
 class AudioEngine {
-  // Audio Context (Web Audio API)
-  private audioContext: AudioContext | null = null;
+  // Audio elements
+  private primaryElement: AudioElement;
+  private crossfadeElement: AudioElement;
 
-  // Primary audio element
-  private audio: HTMLAudioElement | null = null;
-  private currentBlobUrl: string | null = null;
-  private sourceNode: MediaElementAudioSourceNode | null = null;
+  // Audio graphs (processing chains)
+  private primaryGraph: AudioGraph;
+  private crossfadeGraph: AudioGraph;
 
-  // Secondary audio for crossfade/gapless
-  private crossfadeAudio: HTMLAudioElement | null = null;
-  private crossfadeBlobUrl: string | null = null;
-  private crossfadeSourceNode: MediaElementAudioSourceNode | null = null;
+  // State
+  private callbacks: AudioCallbacks = {};
+  private settings: AudioSettings = { ...DEFAULT_SETTINGS };
+  private eqSettings: EqSettings = { ...DEFAULT_EQ_SETTINGS };
+  private volume = 1;
+  private abortController: AbortController | null = null;
+
+  // Crossfade state
   private isCrossfading = false;
+  private crossfadeTriggered = false;
   private crossfadeInterval: ReturnType<typeof setInterval> | null = null;
 
-  // EQ filter nodes (10 bands)
-  private eqFilters: BiquadFilterNode[] = [];
-  private crossfadeEqFilters: BiquadFilterNode[] = [];
-
-  // Gain nodes for volume control
-  private gainNode: GainNode | null = null;
-  private crossfadeGainNode: GainNode | null = null;
-
-  // Compressor for volume normalization
-  private compressorNode: DynamicsCompressorNode | null = null;
-  private crossfadeCompressorNode: DynamicsCompressorNode | null = null;
-
-  // Channel merger for mono audio
-  private channelMerger: ChannelMergerNode | null = null;
-  private channelSplitter: ChannelSplitterNode | null = null;
-  private monoGainL: GainNode | null = null;
-  private monoGainR: GainNode | null = null;
-
-  private callbacks: AudioCallbacks = {};
-  private currentSrc: string | null = null;
-  private abortController: AbortController | null = null;
-  private crossfadeTriggered = false;
-
-  // Preloaded next track for gapless
-  private preloadedNextSrc: string | null = null;
+  // Preload state
+  private preloadedSrc: string | null = null;
   private preloadedBlob: Blob | null = null;
 
-  private settings: AudioSettings = {
-    crossfadeEnabled: true,
-    crossfadeDuration: 4,
-    equalizerEnabled: false,
-    eqGains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    volumeNormalization: false,
-    monoAudio: false,
-    gaplessPlayback: true,
-  };
-
-  // Track current volume for crossfade
-  private currentVolume = 1;
-
   constructor() {
+    // Create audio elements
+    this.primaryElement = new AudioElement({ id: 'campband-audio-primary' });
+    this.crossfadeElement = new AudioElement({ id: 'campband-audio-crossfade' });
+
+    // Create processing graphs
+    this.primaryGraph = new AudioGraph();
+    this.crossfadeGraph = new AudioGraph();
+
+    // Initialize
     if (typeof window !== 'undefined') {
       this.init();
     }
   }
 
-  private init() {
-    // Create audio elements and append to DOM (hidden)
-    // This allows other extensions (like Auto-Stop) to detect media playback
-    this.audio = new Audio();
-    this.audio.preload = 'auto';
-    this.audio.style.display = 'none';
-    this.audio.id = 'campband-audio-primary';
-    document.body.appendChild(this.audio);
+  private init(): void {
+    // Initialize primary element
+    const primary = this.primaryElement.init();
 
-    this.crossfadeAudio = new Audio();
-    this.crossfadeAudio.preload = 'auto';
-    this.crossfadeAudio.style.display = 'none';
-    this.crossfadeAudio.id = 'campband-audio-crossfade';
-    document.body.appendChild(this.crossfadeAudio);
+    // Initialize crossfade element
+    this.crossfadeElement.init();
 
-    // Audio context will be created on first user interaction
-    // (browsers require user gesture to start AudioContext)
-  }
-
-  /**
-   * Initialize or resume AudioContext (must be called after user interaction)
-   */
-  private async ensureAudioContext(): Promise<void> {
-    if (!this.audioContext) {
-      // Create AudioContext - it will be in 'suspended' state until user gesture
-      this.audioContext = new AudioContext();
-      this.setupAudioGraph();
-    }
-
-    // Resume if suspended (this requires a user gesture)
-    if (this.audioContext.state === 'suspended') {
-      try {
-        await this.audioContext.resume();
-      } catch (error) {
-        // If resume fails (no user gesture), that's okay - it will resume on next play attempt
-        console.log('[AudioEngine] AudioContext resume deferred (awaiting user gesture)');
-      }
-    }
-  }
-
-  /**
-   * Set up the Web Audio API processing graph
-   */
-  private setupAudioGraph() {
-    if (!this.audioContext || !this.audio || !this.crossfadeAudio) return;
-
-    // Create source nodes
-    this.sourceNode = this.audioContext.createMediaElementSource(this.audio);
-    this.crossfadeSourceNode = this.audioContext.createMediaElementSource(this.crossfadeAudio);
-
-    // Create processing nodes for primary audio
-    this.eqFilters = this.createEqFilters();
-    this.gainNode = this.audioContext.createGain();
-    this.compressorNode = this.createCompressor();
-
-    // Create processing nodes for crossfade audio
-    this.crossfadeEqFilters = this.createEqFilters();
-    this.crossfadeGainNode = this.audioContext.createGain();
-    this.crossfadeCompressorNode = this.createCompressor();
-
-    // Create mono processing nodes (shared)
-    this.channelSplitter = this.audioContext.createChannelSplitter(2);
-    this.channelMerger = this.audioContext.createChannelMerger(2);
-    this.monoGainL = this.audioContext.createGain();
-    this.monoGainR = this.audioContext.createGain();
-
-    // Connect the audio graph
-    this.connectAudioGraph();
-  }
-
-  /**
-   * Create 10-band EQ filters
-   */
-  private createEqFilters(): BiquadFilterNode[] {
-    if (!this.audioContext) return [];
-
-    return EQ_FREQUENCIES.map((freq, index) => {
-      const filter = this.audioContext!.createBiquadFilter();
-
-      // Use different filter types for edge bands
-      if (index === 0) {
-        filter.type = 'lowshelf';
-      } else if (index === EQ_FREQUENCIES.length - 1) {
-        filter.type = 'highshelf';
-      } else {
-        filter.type = 'peaking';
-        filter.Q.value = 1.4; // Bandwidth
-      }
-
-      filter.frequency.value = freq;
-      filter.gain.value = 0;
-
-      return filter;
-    });
-  }
-
-  /**
-   * Create a compressor for volume normalization
-   */
-  private createCompressor(): DynamicsCompressorNode {
-    const compressor = this.audioContext!.createDynamicsCompressor();
-
-    // Settings for gentle normalization
-    compressor.threshold.value = -24;  // Start compressing at -24dB
-    compressor.knee.value = 30;        // Soft knee for smooth transition
-    compressor.ratio.value = 4;        // 4:1 compression ratio
-    compressor.attack.value = 0.003;   // Fast attack (3ms)
-    compressor.release.value = 0.25;   // Medium release (250ms)
-
-    return compressor;
-  }
-
-  /**
-   * Connect the audio processing graph based on current settings
-   */
-  private connectAudioGraph() {
-    if (!this.audioContext || !this.sourceNode || !this.crossfadeSourceNode) return;
-
-    // Disconnect everything first
-    this.disconnectAll();
-
-    // Build the chain for primary audio
-    this.connectChain(
-      this.sourceNode,
-      this.eqFilters,
-      this.gainNode!,
-      this.compressorNode!,
-      false
-    );
-
-    // Build the chain for crossfade audio
-    this.connectChain(
-      this.crossfadeSourceNode,
-      this.crossfadeEqFilters,
-      this.crossfadeGainNode!,
-      this.crossfadeCompressorNode!,
-      true
-    );
-  }
-
-  /**
-   * Connect a single audio chain
-   */
-  private connectChain(
-    source: MediaElementAudioSourceNode,
-    eqFilters: BiquadFilterNode[],
-    gain: GainNode,
-    compressor: DynamicsCompressorNode,
-    isCrossfade: boolean
-  ) {
-    if (!this.audioContext) return;
-
-    let lastNode: AudioNode = source;
-
-    // EQ filters (if enabled)
-    if (this.settings.equalizerEnabled && eqFilters.length > 0) {
-      // Chain filters together
-      for (let i = 0; i < eqFilters.length; i++) {
-        lastNode.connect(eqFilters[i]);
-        lastNode = eqFilters[i];
-      }
-    }
-
-    // Compressor (if normalization enabled)
-    if (this.settings.volumeNormalization) {
-      lastNode.connect(compressor);
-      lastNode = compressor;
-    }
-
-    // Gain node for volume control
-    lastNode.connect(gain);
-    lastNode = gain;
-
-    // Mono audio processing (if enabled)
-    if (this.settings.monoAudio) {
-      // Split stereo into L/R
-      lastNode.connect(this.channelSplitter!);
-
-      // Mix both channels together (L+R)/2
-      this.channelSplitter!.connect(this.monoGainL!, 0);
-      this.channelSplitter!.connect(this.monoGainL!, 1);
-      this.monoGainL!.gain.value = 0.5;
-
-      this.channelSplitter!.connect(this.monoGainR!, 0);
-      this.channelSplitter!.connect(this.monoGainR!, 1);
-      this.monoGainR!.gain.value = 0.5;
-
-      // Merge back to stereo (both channels get the same mono mix)
-      this.monoGainL!.connect(this.channelMerger!, 0, 0);
-      this.monoGainR!.connect(this.channelMerger!, 0, 1);
-
-      this.channelMerger!.connect(this.audioContext.destination);
-    } else {
-      // Direct to output
-      lastNode.connect(this.audioContext.destination);
-    }
-  }
-
-  /**
-   * Disconnect all nodes
-   */
-  private disconnectAll() {
-    try {
-      this.sourceNode?.disconnect();
-      this.crossfadeSourceNode?.disconnect();
-      this.eqFilters.forEach(f => f.disconnect());
-      this.crossfadeEqFilters.forEach(f => f.disconnect());
-      this.gainNode?.disconnect();
-      this.crossfadeGainNode?.disconnect();
-      this.compressorNode?.disconnect();
-      this.crossfadeCompressorNode?.disconnect();
-      this.channelSplitter?.disconnect();
-      this.channelMerger?.disconnect();
-      this.monoGainL?.disconnect();
-      this.monoGainR?.disconnect();
-    } catch (e) {
-      // Ignore disconnect errors
-    }
-  }
-
-  /**
-   * Update EQ filter gains
-   */
-  private updateEqGains() {
-    if (!this.settings.equalizerEnabled) return;
-
-    const gains = this.settings.eqGains;
-
-    this.eqFilters.forEach((filter, i) => {
-      if (gains[i] !== undefined) {
-        filter.gain.value = gains[i];
-      }
-    });
-
-    this.crossfadeEqFilters.forEach((filter, i) => {
-      if (gains[i] !== undefined) {
-        filter.gain.value = gains[i];
-      }
-    });
-  }
-
-  private setupListeners(audio: HTMLAudioElement, isPrimary: boolean) {
-    if (!isPrimary) return;
-
-    audio.addEventListener('play', () => this.callbacks.onPlay?.());
-    audio.addEventListener('pause', () => {
-      if (!this.isCrossfading) {
-        this.callbacks.onPause?.();
-      }
-    });
-    audio.addEventListener('ended', () => {
-      if (!this.isCrossfading) {
-        this.crossfadeTriggered = false;
-        this.callbacks.onEnded?.();
-      }
-    });
-    audio.addEventListener('timeupdate', () => {
-      this.callbacks.onTimeUpdate?.(audio.currentTime, audio.duration || 0);
-      this.checkCrossfadeOrGapless();
-    });
-    audio.addEventListener('durationchange', () => {
-      if (audio.duration) {
-        this.callbacks.onDurationChange?.(audio.duration);
-      }
-    });
-    audio.addEventListener('error', () => {
-      const error = audio.error;
-      let message = 'Unknown playback error';
-      if (error) {
-        switch (error.code) {
-          case MediaError.MEDIA_ERR_ABORTED: message = 'Playback aborted'; break;
-          case MediaError.MEDIA_ERR_NETWORK: message = 'Network error - stream may have expired'; break;
-          case MediaError.MEDIA_ERR_DECODE: message = 'Audio decode error'; break;
-          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: message = 'Audio format not supported'; break;
+    // Set up event forwarding from primary element
+    this.primaryElement.setCallbacks({
+      onPlay: () => this.callbacks.onPlay?.(),
+      onPause: () => {
+        if (!this.isCrossfading) {
+          this.callbacks.onPause?.();
         }
-      }
-      this.callbacks.onError?.(message);
+      },
+      onEnded: () => {
+        if (!this.isCrossfading) {
+          this.crossfadeTriggered = false;
+          this.callbacks.onEnded?.();
+        }
+      },
+      onTimeUpdate: (time, duration) => {
+        this.callbacks.onTimeUpdate?.(time, duration);
+        this.checkCrossfadeTrigger();
+      },
+      onDurationChange: (duration) => this.callbacks.onDurationChange?.(duration),
+      onError: (error) => this.callbacks.onError?.(error),
+      onLoadStart: () => this.callbacks.onLoadStart?.(),
+      onCanPlay: () => this.callbacks.onCanPlay?.(),
     });
-    audio.addEventListener('loadstart', () => this.callbacks.onLoadStart?.());
-    audio.addEventListener('canplay', () => this.callbacks.onCanPlay?.());
+
+    // Clean up any stray audio elements
+    this.cleanupStrayElements();
+
+    console.log('[AudioEngine] Initialized with modular architecture');
   }
 
-  private checkCrossfadeOrGapless() {
-    if (!this.audio || this.crossfadeTriggered || this.isCrossfading) return;
-
-    const timeRemaining = this.audio.duration - this.audio.currentTime;
-
-    // Check for crossfade
-    if (this.settings.crossfadeEnabled) {
-    const threshold = this.settings.crossfadeDuration;
-    if (timeRemaining <= threshold && timeRemaining > 0.5) {
-      this.crossfadeTriggered = true;
-      this.callbacks.onCrossfadeStart?.();
+  /**
+   * Remove any audio elements that aren't ours
+   */
+  private cleanupStrayElements(): void {
+    const allAudio = document.querySelectorAll('audio');
+    for (const audio of allAudio) {
+      const el = audio as HTMLAudioElement;
+      if (el.id !== 'campband-audio-primary' && el.id !== 'campband-audio-crossfade') {
+        console.warn('[AudioEngine] Removing stray audio element:', el.src?.substring(0, 50));
+        el.pause();
+        el.src = '';
+        el.remove();
       }
     }
-    // Check for gapless (trigger slightly before end)
-    else if (this.settings.gaplessPlayback) {
+  }
+
+  /**
+   * Ensure audio is connected to processing graph
+   */
+  private async ensureGraphConnected(): Promise<void> {
+    const audio = this.primaryElement.get();
+
+    if (!this.primaryGraph.isConnected(audio)) {
+      await this.primaryGraph.connect(audio, {
+        volumeNormalization: this.settings.volumeNormalization,
+        eq: this.eqSettings,
+      });
+      this.primaryGraph.setVolume(this.volume);
+    }
+  }
+
+  /**
+   * Check if crossfade should trigger
+   */
+  private checkCrossfadeTrigger(): void {
+    if (this.crossfadeTriggered || this.isCrossfading) return;
+
+    const duration = this.primaryElement.getDuration();
+    const currentTime = this.primaryElement.getCurrentTime();
+    const timeRemaining = duration - currentTime;
+
+    if (this.settings.crossfadeEnabled) {
+      const threshold = this.settings.crossfadeDuration;
+      if (timeRemaining <= threshold && timeRemaining > 0.5) {
+        this.crossfadeTriggered = true;
+        this.callbacks.onCrossfadeStart?.();
+      }
+    } else if (this.settings.gaplessPlayback) {
       if (timeRemaining <= 0.3 && timeRemaining > 0.1) {
         this.crossfadeTriggered = true;
         this.callbacks.onCrossfadeStart?.();
@@ -404,130 +150,402 @@ class AudioEngine {
     }
   }
 
-  setCallbacks(callbacks: AudioCallbacks) {
+  // ============================================
+  // Public API
+  // ============================================
+
+  /**
+   * Set event callbacks
+   */
+  setCallbacks(callbacks: AudioCallbacks): void {
     this.callbacks = { ...this.callbacks, ...callbacks };
+
+    // Resync with DOM in case of hot reload
+    this.resyncWithDOM(true);
+
+    // Re-apply EQ settings after hot reload (graph might have been reconnected)
+    this.reapplyEqSettings();
   }
 
-  updateSettings(settings: Partial<AudioSettings>) {
-    const prevSettings = { ...this.settings };
+  /**
+   * Re-apply EQ settings (used after hot reload)
+   */
+  private reapplyEqSettings(): void {
+    // Force update EQ on both graphs
+    this.primaryGraph.updateOptions({ eq: this.eqSettings });
+    this.crossfadeGraph.updateOptions({ eq: this.eqSettings });
+  }
+
+  /**
+   * Force reconnect audio graph (for hot-reload recovery)
+   * This ensures the EQ and other processing is properly connected
+   */
+  async forceReconnect(): Promise<void> {
+    // Don't interfere with ongoing crossfade
+    if (this.isCrossfading) {
+      console.log('[AudioEngine] Skipping force reconnect during crossfade');
+      return;
+    }
+
+    const audio = this.primaryElement.get();
+
+    // Force reconnection by passing current settings
+    await this.primaryGraph.connect(audio, {
+      volumeNormalization: this.settings.volumeNormalization,
+      eq: this.eqSettings,
+      initialVolume: this.volume,  // Preserve current volume
+    });
+
+    console.log('[AudioEngine] Force reconnected audio graph');
+  }
+
+  /**
+   * Update audio settings
+   */
+  updateSettings(settings: Partial<AudioSettings>): void {
     this.settings = { ...this.settings, ...settings };
 
-    // Update EQ gains if changed
-    if (settings.eqGains) {
-      this.updateEqGains();
-    }
-
-    // Reconnect audio graph if routing-related settings changed
-    if (
-      settings.equalizerEnabled !== undefined ||
-      settings.volumeNormalization !== undefined ||
-      settings.monoAudio !== undefined
-    ) {
-      // Only reconnect if context exists
-      if (this.audioContext && this.sourceNode) {
-        this.connectAudioGraph();
-        this.updateEqGains();
-      }
-    }
+    // Update graphs
+    this.primaryGraph.updateOptions({
+      volumeNormalization: this.settings.volumeNormalization,
+    });
+    this.crossfadeGraph.updateOptions({
+      volumeNormalization: this.settings.volumeNormalization,
+    });
   }
 
   /**
-   * Preload the next track for gapless playback
+   * Update EQ settings
    */
-  async preloadNext(nextSrc: string): Promise<void> {
-    if (!nextSrc || this.preloadedNextSrc === nextSrc) return;
+  updateEqSettings(settings: Partial<EqSettings>): void {
+    this.eqSettings = { ...this.eqSettings, ...settings };
+
+    this.primaryGraph.updateOptions({ eq: this.eqSettings });
+    this.crossfadeGraph.updateOptions({ eq: this.eqSettings });
+  }
+
+  /**
+   * Set single EQ band
+   */
+  setEqBand(frequency: EqBand, gain: number): void {
+    this.eqSettings.gains[frequency] = gain;
+    this.primaryGraph.setEqBand(frequency, gain);
+    this.crossfadeGraph.setEqBand(frequency, gain);
+  }
+
+  /**
+   * Apply EQ preset
+   */
+  applyEqPreset(preset: EqPresetName): void {
+    const presetGains = EQ_PRESETS[preset];
+    this.eqSettings.gains = { ...presetGains } as Record<EqBand, number>;
+    this.primaryGraph.applyPreset(preset);
+    this.crossfadeGraph.applyPreset(preset);
+  }
+
+  /**
+   * Enable/disable EQ
+   */
+  setEqEnabled(enabled: boolean): void {
+    this.eqSettings.enabled = enabled;
+    this.primaryGraph.setEqEnabled(enabled);
+    this.crossfadeGraph.setEqEnabled(enabled);
+  }
+
+  /**
+   * Get current EQ settings
+   */
+  getEqSettings(): EqSettings {
+    return { ...this.eqSettings };
+  }
+
+  /**
+   * Load a track
+   * @param src - Stream URL
+   * @param force - If true, always load. If false, skip if audio is already playing.
+   */
+  async load(src: string, force = false): Promise<void> {
+    // Don't interrupt playing audio unless forced
+    if (!force && this.primaryElement.isPlaying()) {
+      return;
+    }
+
+    // Handle loading during crossfade
+    if (this.isCrossfading) {
+      console.log('[AudioEngine] Load during crossfade - completing swap');
+      this.completeCrossfadeSwap();
+      return;
+    }
+
+    // Abort any pending fetch
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+
+    // Cancel ongoing crossfade
+    this.cancelCrossfade();
+
+    // Stop current playback
+    this.primaryElement.pause();
+
+    if (!src || !src.startsWith('http')) {
+      return;
+    }
+
+    // Skip if same source
+    if (this.primaryElement.getCurrentSrc() === src) {
+      return;
+    }
 
     try {
-      const response = await fetch(nextSrc);
-      if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+      this.abortController = new AbortController();
 
-      this.preloadedBlob = await response.blob();
-      this.preloadedNextSrc = nextSrc;
-      console.log('[AudioEngine] Preloaded next track');
+      // Use preloaded blob if available
+      if (this.preloadedSrc === src && this.preloadedBlob) {
+        this.primaryElement.loadFromBlob(this.preloadedBlob, src);
+        this.preloadedBlob = null;
+        this.preloadedSrc = null;
+      } else {
+        await this.primaryElement.load(src, this.abortController.signal);
+      }
+
+      this.crossfadeTriggered = false;
     } catch (error) {
-      console.warn('[AudioEngine] Failed to preload:', error);
-      this.preloadedBlob = null;
-      this.preloadedNextSrc = null;
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+      throw error;
     }
   }
 
   /**
-   * Perform crossfade to a new track
+   * Start playback
+   */
+  async play(): Promise<void> {
+    await this.ensureGraphConnected();
+    await this.primaryElement.play();
+  }
+
+  /**
+   * Pause playback
+   */
+  pause(): void {
+    this.primaryElement.pause();
+  }
+
+  /**
+   * Stop and reset
+   */
+  stop(): void {
+    this.primaryElement.stop();
+    this.cancelCrossfade();
+  }
+
+  /**
+   * Seek to time in seconds
+   */
+  seek(time: number): void {
+    this.primaryElement.seek(time);
+  }
+
+  /**
+   * Seek to percentage (0-100)
+   */
+  seekPercent(percent: number): void {
+    const duration = this.primaryElement.getDuration();
+    if (duration > 0) {
+      this.seek(duration * (percent / 100));
+    }
+  }
+
+  /**
+   * Set volume (0-1)
+   */
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(1, volume));
+    this.primaryGraph.setVolume(this.volume);
+
+    // Also update crossfade graph if not actively crossfading
+    if (!this.isCrossfading) {
+      this.crossfadeGraph.setVolume(0);
+    }
+  }
+
+  /**
+   * Get current volume
+   */
+  getVolume(): number {
+    return this.volume;
+  }
+
+  /**
+   * Set muted state
+   */
+  setMuted(muted: boolean): void {
+    this.primaryElement.setMuted(muted);
+  }
+
+  /**
+   * Check if muted
+   */
+  isMuted(): boolean {
+    return this.primaryElement.isMuted();
+  }
+
+  /**
+   * Check if playing
+   */
+  isPlaying(): boolean {
+    return this.primaryElement.isPlaying();
+  }
+
+  /**
+   * Get current playback time
+   */
+  getCurrentTime(): number {
+    return this.primaryElement.getCurrentTime();
+  }
+
+  /**
+   * Get track duration
+   */
+  getDuration(): number {
+    return this.primaryElement.getDuration();
+  }
+
+  /**
+   * Get current source URL
+   */
+  getCurrentSrc(): string | null {
+    return this.primaryElement.getCurrentSrc();
+  }
+
+  /**
+   * Get full state object
+   */
+  getState(): AudioState {
+    return {
+      isPlaying: this.isPlaying(),
+      currentTime: this.getCurrentTime(),
+      duration: this.getDuration(),
+      src: this.getCurrentSrc(),
+      volume: this.volume,
+      muted: this.isMuted(),
+    };
+  }
+
+  // ============================================
+  // Crossfade
+  // ============================================
+
+  /**
+   * Preload next track for gapless playback
+   */
+  async preloadNext(src: string): Promise<void> {
+    if (!src || this.preloadedSrc === src) return;
+
+    try {
+      const response = await fetch(src);
+      if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+      this.preloadedBlob = await response.blob();
+      this.preloadedSrc = src;
+      console.log('[AudioEngine] Preloaded next track');
+    } catch {
+      this.preloadedBlob = null;
+      this.preloadedSrc = null;
+    }
+  }
+
+  /**
+   * Crossfade to next track
    */
   async crossfadeTo(nextSrc: string): Promise<void> {
-    if (!this.audio || !this.crossfadeAudio) return;
+    if (this.isCrossfading) {
+      this.cancelCrossfade(false);
+    }
 
-    await this.ensureAudioContext();
+    await this.ensureGraphConnected();
+
+    // Connect crossfade element to its graph (start at volume 0)
+    const crossfadeAudio = this.crossfadeElement.get();
+    if (!this.crossfadeGraph.isConnected(crossfadeAudio)) {
+      await this.crossfadeGraph.connect(crossfadeAudio, {
+        volumeNormalization: this.settings.volumeNormalization,
+        eq: this.eqSettings,
+        initialVolume: 0,  // Critical: start at 0 for crossfade
+      });
+    } else {
+      // Already connected, but ensure volume is 0 before starting
+      this.crossfadeGraph.setVolume(0);
+    }
 
     this.isCrossfading = true;
     const duration = this.settings.crossfadeEnabled ? this.settings.crossfadeDuration : 0.1;
-    const currentAudio = this.audio;
 
     try {
-      // Load next track into crossfade audio
-      if (this.crossfadeBlobUrl) {
-        URL.revokeObjectURL(this.crossfadeBlobUrl);
-      }
-
-      // Use preloaded blob if available
+      // Load next track into crossfade element
       let blob: Blob;
-      if (this.preloadedNextSrc === nextSrc && this.preloadedBlob) {
+      if (this.preloadedSrc === nextSrc && this.preloadedBlob) {
         blob = this.preloadedBlob;
         this.preloadedBlob = null;
-        this.preloadedNextSrc = null;
+        this.preloadedSrc = null;
       } else {
-      const response = await fetch(nextSrc);
-      if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+        const response = await fetch(nextSrc);
+        if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
         blob = await response.blob();
       }
 
-      this.crossfadeBlobUrl = URL.createObjectURL(blob);
-      this.crossfadeAudio.src = this.crossfadeBlobUrl;
-      this.crossfadeAudio.load();
+      this.crossfadeElement.loadFromBlob(blob, nextSrc);
 
-      // Wait for it to be ready
+      // Wait for ready
       await new Promise<void>((resolve, reject) => {
+        const audio = this.crossfadeElement.get();
         const onCanPlay = () => {
-          this.crossfadeAudio!.removeEventListener('canplay', onCanPlay);
-          this.crossfadeAudio!.removeEventListener('error', onError);
+          audio.removeEventListener('canplay', onCanPlay);
+          audio.removeEventListener('error', onError);
           resolve();
         };
         const onError = () => {
-          this.crossfadeAudio!.removeEventListener('canplay', onCanPlay);
-          this.crossfadeAudio!.removeEventListener('error', onError);
+          audio.removeEventListener('canplay', onCanPlay);
+          audio.removeEventListener('error', onError);
           reject(new Error('Load failed'));
         };
-        this.crossfadeAudio!.addEventListener('canplay', onCanPlay);
-        this.crossfadeAudio!.addEventListener('error', onError);
+        audio.addEventListener('canplay', onCanPlay);
+        audio.addEventListener('error', onError);
       });
 
-      // Start crossfade audio at volume 0
-      if (this.crossfadeGainNode) {
-        this.crossfadeGainNode.gain.value = 0;
-      }
-      await this.crossfadeAudio.play();
+      // Set initial volumes
+      this.crossfadeGraph.setVolume(0);
+      this.primaryGraph.setVolume(this.volume);
 
-      // Fade volumes using Web Audio API gain nodes
-      const startVolume = this.currentVolume;
-      const steps = Math.max(20, Math.round(duration * 20)); // At least 20 steps
+      // Start playing crossfade track
+      await this.crossfadeElement.play();
+
+      // Perform crossfade
+      const startVolume = this.volume;
+      const steps = Math.max(20, Math.round(duration * 20));
       const stepTime = (duration * 1000) / steps;
       let step = 0;
 
       await new Promise<void>((resolve) => {
         this.crossfadeInterval = setInterval(() => {
+          if (!this.isCrossfading) {
+            if (this.crossfadeInterval) {
+              clearInterval(this.crossfadeInterval);
+              this.crossfadeInterval = null;
+            }
+            resolve();
+            return;
+          }
+
           step++;
           const progress = step / steps;
+          // Equal-power crossfade
+          const fadeOut = Math.cos(progress * Math.PI / 2);
+          const fadeIn = Math.sin(progress * Math.PI / 2);
 
-          // Smooth easing curve for nicer crossfade
-          const fadeOut = Math.cos(progress * Math.PI / 2); // 1 -> 0
-          const fadeIn = Math.sin(progress * Math.PI / 2);  // 0 -> 1
-
-          if (this.gainNode) {
-            this.gainNode.gain.value = startVolume * fadeOut;
-          }
-          if (this.crossfadeGainNode) {
-            this.crossfadeGainNode.gain.value = startVolume * fadeIn;
-          }
+          this.primaryGraph.setVolume(startVolume * fadeOut);
+          this.crossfadeGraph.setVolume(startVolume * fadeIn);
 
           if (step >= steps) {
             if (this.crossfadeInterval) {
@@ -539,50 +557,10 @@ class AudioEngine {
         }, stepTime);
       });
 
-      // Crossfade complete - swap audios
-      currentAudio.pause();
-      currentAudio.currentTime = 0;
-
-      // Swap blob URLs
-      const oldBlobUrl = this.currentBlobUrl;
-      this.currentBlobUrl = this.crossfadeBlobUrl;
-      this.crossfadeBlobUrl = oldBlobUrl;
-
-      // Swap audio elements
-      const oldAudio = this.audio;
-      this.audio = this.crossfadeAudio;
-      this.crossfadeAudio = oldAudio;
-
-      // Swap source nodes
-      const oldSourceNode = this.sourceNode;
-      this.sourceNode = this.crossfadeSourceNode;
-      this.crossfadeSourceNode = oldSourceNode;
-
-      // Swap gain nodes
-      const oldGainNode = this.gainNode;
-      this.gainNode = this.crossfadeGainNode;
-      this.crossfadeGainNode = oldGainNode;
-
-      // Swap EQ filters
-      const oldEqFilters = this.eqFilters;
-      this.eqFilters = this.crossfadeEqFilters;
-      this.crossfadeEqFilters = oldEqFilters;
-
-      // Swap compressors
-      const oldCompressor = this.compressorNode;
-      this.compressorNode = this.crossfadeCompressorNode;
-      this.crossfadeCompressorNode = oldCompressor;
-
-      // Set up listeners on new primary
-      this.setupListeners(this.audio, true);
-
-      // Update state
-      this.currentSrc = nextSrc;
-      if (this.gainNode) {
-        this.gainNode.gain.value = startVolume;
+      // Complete swap if still crossfading
+      if (this.isCrossfading) {
+        this.completeCrossfadeSwap();
       }
-      this.crossfadeTriggered = false;
-      this.isCrossfading = false;
 
     } catch (error) {
       console.error('[AudioEngine] Crossfade failed:', error);
@@ -592,208 +570,184 @@ class AudioEngine {
     }
   }
 
-  async load(src: string): Promise<void> {
-    if (!this.audio) {
-      this.init();
-    }
-
-    if (!this.audio) {
-      throw new Error('Failed to initialize audio');
-    }
-
-    // Don't create AudioContext on load - wait until we actually need to play
-    // This prevents the "AudioContext was prevented from starting" warning
-
-    // Set up listeners if not already done
-    if (!this.audio.onplay) {
-      this.setupListeners(this.audio, true);
-    }
-
-    // Validate source URL
-    if (!src || !src.startsWith('http')) {
-      console.warn('[AudioEngine] Invalid source URL:', src);
-      return;
-    }
-
-    // Don't reload same source
-    if (this.currentSrc === src) {
-      return;
-    }
-
-    // Cancel pending fetch
-    if (this.abortController) {
-      this.abortController.abort();
-    }
-
-    // Cancel crossfade
+  /**
+   * Complete crossfade swap (also used when skipping during crossfade)
+   */
+  private completeCrossfadeSwap(): void {
     if (this.crossfadeInterval) {
       clearInterval(this.crossfadeInterval);
       this.crossfadeInterval = null;
     }
-    this.isCrossfading = false;
-    this.crossfadeTriggered = false;
 
-    // Clean up old blob
-    if (this.currentBlobUrl) {
-      URL.revokeObjectURL(this.currentBlobUrl);
-      this.currentBlobUrl = null;
-    }
+    // Stop old primary
+    this.primaryElement.pause();
+    this.primaryElement.seek(0);
 
-    this.currentSrc = src;
-    this.callbacks.onLoadStart?.();
+    // Swap elements
+    const tempElement = this.primaryElement;
+    this.primaryElement = this.crossfadeElement;
+    this.crossfadeElement = tempElement;
 
-    try {
-      this.abortController = new AbortController();
+    // Swap graphs
+    const tempGraph = this.primaryGraph;
+    this.primaryGraph = this.crossfadeGraph;
+    this.crossfadeGraph = tempGraph;
 
-      // Check if we have this preloaded
-      let blob: Blob;
-      if (this.preloadedNextSrc === src && this.preloadedBlob) {
-        blob = this.preloadedBlob;
-        this.preloadedBlob = null;
-        this.preloadedNextSrc = null;
-      } else {
-      const response = await fetch(src, { signal: this.abortController.signal });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch audio: ${response.status}`);
+    // Reset volumes
+    this.primaryGraph.setVolume(this.volume);
+    this.crossfadeGraph.setVolume(0);
+
+    // Update callbacks on new primary
+    this.primaryElement.setCallbacks({
+      onPlay: () => this.callbacks.onPlay?.(),
+      onPause: () => {
+        if (!this.isCrossfading) {
+          this.callbacks.onPause?.();
         }
-        blob = await response.blob();
-      }
+      },
+      onEnded: () => {
+        if (!this.isCrossfading) {
+          this.crossfadeTriggered = false;
+          this.callbacks.onEnded?.();
+        }
+      },
+      onTimeUpdate: (time, duration) => {
+        this.callbacks.onTimeUpdate?.(time, duration);
+        this.checkCrossfadeTrigger();
+      },
+      onDurationChange: (duration) => this.callbacks.onDurationChange?.(duration),
+      onError: (error) => this.callbacks.onError?.(error),
+      onLoadStart: () => this.callbacks.onLoadStart?.(),
+      onCanPlay: () => this.callbacks.onCanPlay?.(),
+    });
 
-      this.currentBlobUrl = URL.createObjectURL(blob);
-      this.audio.src = this.currentBlobUrl;
-      this.audio.load();
-
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return;
-      }
-      console.error('[AudioEngine] Load failed:', error);
-      this.callbacks.onError?.(error instanceof Error ? error.message : 'Load failed');
-      throw error;
-    }
-  }
-
-  async play(): Promise<void> {
-    if (!this.audio) return;
-
-    // Ensure AudioContext is created and resumed before playing
-    // This is called in response to a user gesture, so it's safe
-    await this.ensureAudioContext();
-
-    // Don't try to play without a valid source loaded
-    if (!this.currentBlobUrl && !this.currentSrc) {
-      console.warn('[AudioEngine] No audio source loaded');
-      return;
-    }
-
-    try {
-      await this.audio.play();
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
-      console.error('[AudioEngine] Play failed:', error);
-      throw error;
-    }
-  }
-
-  pause(): void {
-    this.audio?.pause();
-  }
-
-  stop(): void {
-    if (!this.audio) return;
-
-    this.audio.pause();
-    this.audio.currentTime = 0;
-    this.currentSrc = null;
-    this.crossfadeTriggered = false;
     this.isCrossfading = false;
+    this.crossfadeTriggered = false;
 
+    // Sync UI
+    setTimeout(() => {
+      this.callbacks.onPlay?.();
+      this.callbacks.onDurationChange?.(this.getDuration());
+      this.callbacks.onTimeUpdate?.(this.getCurrentTime(), this.getDuration());
+    }, 10);
+  }
+
+  /**
+   * Cancel ongoing crossfade
+   */
+  cancelCrossfade(stopPrimary = true): void {
     if (this.crossfadeInterval) {
       clearInterval(this.crossfadeInterval);
       this.crossfadeInterval = null;
     }
 
-    if (this.currentBlobUrl) {
-      URL.revokeObjectURL(this.currentBlobUrl);
-      this.currentBlobUrl = null;
+    if (stopPrimary) {
+      this.primaryElement.pause();
+    }
+
+    this.crossfadeElement.pause();
+    this.crossfadeElement.seek(0);
+
+    this.primaryGraph.setVolume(this.volume);
+    this.crossfadeGraph.setVolume(0);
+
+    this.isCrossfading = false;
+    this.crossfadeTriggered = false;
+  }
+
+  // ============================================
+  // Hot Reload Support
+  // ============================================
+
+  /**
+   * Resync with DOM after hot reload
+   */
+  resyncWithDOM(force = false): void {
+    if (!force && this.primaryElement.isValid() && this.isPlaying()) {
+      return;
+    }
+
+    // Find best audio element in DOM
+    const allAudio = document.querySelectorAll('audio');
+    let bestCandidate: HTMLAudioElement | null = null;
+    let bestScore = -1;
+
+    for (const audio of allAudio) {
+      let score = 0;
+      if (!audio.paused) score += 100;
+      if (audio.currentTime > 0) score += 50;
+      if (audio.id === 'campband-audio-primary') score += 25;
+      if (audio.src?.startsWith('blob:')) score += 10;
+      if (audio.duration > 0 && !isNaN(audio.duration)) score += 5;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = audio as HTMLAudioElement;
+      }
+    }
+
+    if (bestCandidate && bestScore > 0) {
+      this.primaryElement.adopt(bestCandidate);
+
+      // Reconnect to graph
+      this.primaryGraph.connect(bestCandidate, {
+        volumeNormalization: this.settings.volumeNormalization,
+        eq: this.eqSettings,
+      }).catch(console.warn);
+    }
+
+    // Find crossfade element
+    const crossfadeEl = document.getElementById('campband-audio-crossfade') as HTMLAudioElement | null;
+    if (crossfadeEl) {
+      this.crossfadeElement.adopt(crossfadeEl);
     }
   }
 
-  seek(time: number): void {
-    if (!this.audio) return;
-    this.audio.currentTime = Math.max(0, Math.min(time, this.audio.duration || 0));
+  /**
+   * Check if audio chain is connected
+   */
+  isAudioChainConnected(): boolean {
+    return this.primaryGraph.hasContext() &&
+           this.primaryGraph.isConnected(this.primaryElement.get());
   }
 
-  seekPercent(percent: number): void {
-    if (!this.audio?.duration) return;
-    this.seek(this.audio.duration * (percent / 100));
-  }
-
-  setVolume(volume: number): void {
-    this.currentVolume = Math.max(0, Math.min(1, volume));
-
-    // Use gain node if available, otherwise fall back to audio element
-    if (this.gainNode) {
-      this.gainNode.gain.value = this.currentVolume;
-    } else if (this.audio) {
-      this.audio.volume = this.currentVolume;
-    }
-  }
-
-  getVolume(): number {
-    return this.currentVolume;
-  }
-
-  setMuted(muted: boolean): void {
-    if (this.audio) this.audio.muted = muted;
-  }
-
-  isMuted(): boolean {
-    return this.audio?.muted ?? false;
-  }
-
-  isPlaying(): boolean {
-    return this.audio ? !this.audio.paused : false;
-  }
-
-  getCurrentTime(): number {
-    return this.audio?.currentTime ?? 0;
-  }
-
-  getDuration(): number {
-    return this.audio?.duration ?? 0;
-  }
-
+  /**
+   * Destroy the engine
+   */
   destroy(): void {
     if (this.abortController) this.abortController.abort();
-    if (this.crossfadeInterval) clearInterval(this.crossfadeInterval);
+    this.cancelCrossfade();
 
-    // Close audio context
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
-    }
-
-    if (this.audio) {
-      this.audio.pause();
-      this.audio.src = '';
-      this.audio.remove(); // Remove from DOM
-    }
-
-    if (this.crossfadeAudio) {
-      this.crossfadeAudio.pause();
-      this.crossfadeAudio.src = '';
-      this.crossfadeAudio.remove(); // Remove from DOM
-    }
-
-    if (this.currentBlobUrl) URL.revokeObjectURL(this.currentBlobUrl);
-    if (this.crossfadeBlobUrl) URL.revokeObjectURL(this.crossfadeBlobUrl);
+    this.primaryGraph.destroy();
+    this.crossfadeGraph.destroy();
+    this.primaryElement.destroy();
+    this.crossfadeElement.destroy();
 
     this.callbacks = {};
-    this.currentSrc = null;
   }
 }
 
-export const audioEngine = new AudioEngine();
+// ============================================
+// Singleton Management
+// ============================================
+
+declare global {
+  interface Window {
+    __campband_audio_engine__?: AudioEngine;
+  }
+}
+
+function getOrCreateAudioEngine(): AudioEngine {
+  if (typeof window === 'undefined') {
+    return new AudioEngine();
+  }
+
+  if (window.__campband_audio_engine__) {
+    return window.__campband_audio_engine__;
+  }
+
+  window.__campband_audio_engine__ = new AudioEngine();
+  return window.__campband_audio_engine__;
+}
+
+export const audioEngine = getOrCreateAudioEngine();

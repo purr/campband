@@ -221,7 +221,7 @@ function ReleaseListItem({ release, onClick, onPlay, onContextMenu }: ReleaseLis
       }}
     >
       {/* Cover Art with Play Button */}
-      <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-highlight-med flex-shrink-0 shadow-lg">
+      <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-highlight-med shrink-0 shadow-lg">
         {artUrl ? (
           <img
             src={artUrl}

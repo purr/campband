@@ -2,8 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Heart, Link, Check, ExternalLink, ListPlus, ListEnd, Play, Loader2 } from 'lucide-react';
 import { cn, registerContextMenu, unregisterContextMenu, notifyMenuClosed, notifyMenuOpening, scheduleCloseFromMousedown } from '@/lib/utils';
-import { useLibraryStore, useQueueStore, usePlayerStore, useSettingsStore } from '@/lib/store';
-import { fetchReleasePage } from '@/lib/api';
+import { useLibraryStore, useQueueStore, usePlayerStore, useSettingsStore, useAlbumStore } from '@/lib/store';
 import { useUnlikeConfirm } from './ConfirmProvider';
 import type { Album, Track } from '@/types';
 
@@ -36,6 +35,7 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
   const { isFavoriteAlbum, addFavoriteAlbum, removeFavoriteAlbum } = useLibraryStore();
   const { setQueue, addMultipleToQueue, insertMultipleNext } = useQueueStore();
   const { play } = usePlayerStore();
+  const { getAlbumWithCache } = useAlbumStore();
   const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
   const { confirmUnlikeAlbum } = useUnlikeConfirm();
   const [isVisible, setIsVisible] = useState(false);
@@ -165,15 +165,15 @@ export function AlbumContextMenu({ position, album, onClose }: AlbumContextMenuP
     handleClose();
   };
 
-  // Helper to get tracks - loads them if not present
+  // Helper to get tracks - uses cache first
   const getAlbumTracks = async (): Promise<Track[]> => {
-    // If tracks are already loaded, use them
+    // If tracks are already loaded in the prop, use them
     if (album.tracks && album.tracks.length > 0) {
       return album.tracks.filter(t => t.streamUrl) as Track[];
     }
 
-    // Otherwise fetch from the album URL
-    const releaseData = await fetchReleasePage(album.url);
+    // Otherwise get from cache (or fetch if not cached)
+    const releaseData = await getAlbumWithCache(album.url);
     return releaseData.tracks.filter(t => t.streamUrl);
   };
 

@@ -1,17 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
-import { Home, Search, Plus, Settings, Music, Disc3 } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Home, Search, Plus, Music, Disc3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore, useRouterStore, useSearchStore, usePlaylistStore, useLibraryStore } from '@/lib/store';
 import { buildArtUrl, ImageSizes } from '@/types';
 import { LikedCover, FollowingCover, PlaylistCover } from '@/components/shared';
 import { useContextMenu } from '@/components/ui';
-import { useSmoothScroll } from '@/hooks/useSmoothScroll';
-import { LAYOUT_CLASSES } from '@/lib/constants/layout';
+import { LAYOUT_CLASSES, SIDEBAR_SIZES } from '@/lib/constants/layout';
+
+// Hosted icon URL for when running in website context (content script injection)
+const HOSTED_ICON_URL = 'https://purr.github.io/campband/icon.svg';
 
 interface NavItem {
   icon: React.ReactNode;
   label: string;
-  route: 'home' | 'search' | 'following' | 'liked' | 'settings';
+  route: 'home' | 'search' | 'following' | 'liked';
   count?: number;
 }
 
@@ -22,15 +24,29 @@ export function Sidebar() {
   const { playlists, init: initPlaylists, getPlaylistArtIds } = usePlaylistStore();
   const { favoriteArtists, favoriteAlbums, favoriteTracks, init: initLibrary } = useLibraryStore();
 
+  // Get icon URL - use extension URL if available, otherwise use hosted URL
+  const iconUrl = useMemo(() => {
+    // Check if we're in an extension context (not content script on website)
+    const isExtensionContext = typeof browser !== 'undefined' &&
+      browser.runtime?.getURL &&
+      !window.location.hostname.includes('github.io');
+
+    if (isExtensionContext) {
+      try {
+        return browser.runtime.getURL('/icon/icon.svg');
+      } catch {
+        // Fall back to hosted URL
+      }
+    }
+    return HOSTED_ICON_URL;
+  }, []);
+
   const [showTopShadow, setShowTopShadow] = useState(false);
   const [showBottomShadow, setShowBottomShadow] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Context menu hook
   const { openAlbumMenu, openPlaylistMenu, openLikedSongsMenu } = useContextMenu();
-
-  // Smooth scroll for sidebar list
-  useSmoothScroll(scrollRef);
 
   // Initialize stores
   useEffect(() => {
@@ -96,8 +112,8 @@ export function Sidebar() {
   }, [playlists, favoriteAlbums]);
 
   const mainNavItems: NavItem[] = [
-    { icon: <Home size={20} />, label: 'Home', route: 'home' },
-    { icon: <Search size={20} />, label: 'Search', route: 'search' },
+    { icon: <Home size={SIDEBAR_SIZES.ICON} />, label: 'Home', route: 'home' },
+    { icon: <Search size={SIDEBAR_SIZES.ICON} />, label: 'Search', route: 'search' },
   ];
 
   const handleNavigation = (route: NavItem['route']) => {
@@ -146,7 +162,7 @@ export function Sidebar() {
     >
       {/* Logo - Same height as header bar */}
       <div className={cn(
-        'flex items-center gap-3 px-4 border-b border-white/5 flex-shrink-0',
+        'flex items-center gap-3 px-4 border-b border-white/5 shrink-0',
         LAYOUT_CLASSES.BAR_HEIGHT
       )}>
         <button
@@ -156,15 +172,18 @@ export function Sidebar() {
             toggleSidebar();
           }}
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-love/20"
+          className={cn(
+            'rounded-xl overflow-hidden shrink-0 hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-love/20',
+            SIDEBAR_SIZES.LOGO
+          )}
         >
-          <img src={browser.runtime.getURL('/icon/icon.svg')} alt="CampBand" className="w-full h-full" />
+          <img src={iconUrl} alt="CampBand" className="w-full h-full" />
         </button>
         <span
           className={cn(
             'font-bold text-lg text-text whitespace-nowrap',
             'transition-opacity duration-200',
-            sidebarCollapsed ? 'opacity-0' : 'opacity-100'
+            sidebarCollapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'
           )}
         >
           CampBand
@@ -172,7 +191,7 @@ export function Sidebar() {
       </div>
 
       {/* Main Navigation */}
-      <nav className="px-2 py-3 space-y-1 flex-shrink-0">
+      <nav className="px-2 py-3 space-y-1 shrink-0">
         {mainNavItems.map((item) => (
           <NavButton
             key={item.route}
@@ -188,7 +207,7 @@ export function Sidebar() {
       <div className="mx-3 border-t border-white/5" />
 
       {/* Sticky Library Section - Following & Liked Songs */}
-      <nav className="px-2 py-2 space-y-0.5 flex-shrink-0">
+      <nav className="px-2 py-2 space-y-0.5 shrink-0">
           {/* Following - Artists */}
           <CollectionItem
             name="Following"
@@ -222,7 +241,7 @@ export function Sidebar() {
         <div
           className={cn(
             'absolute top-0 left-0 right-0 h-6 z-10 pointer-events-none',
-            'bg-gradient-to-b from-surface/80 to-transparent',
+            'bg-linear-to-b from-surface/80 to-transparent',
             'transition-opacity duration-200',
             showTopShadow ? 'opacity-100' : 'opacity-0'
           )}
@@ -231,7 +250,7 @@ export function Sidebar() {
         {/* Scrollable List */}
         <div
           ref={scrollRef}
-          className="h-full overflow-y-auto px-2 py-1 scrollbar-thin scroll-smooth"
+          className={cn('h-full overflow-y-auto px-2 py-1 scrollbar-thin scroll-smooth', LAYOUT_CLASSES.MAIN_CONTENT_PADDING)}
         >
           {/* Create Playlist Button */}
           <button
@@ -244,17 +263,16 @@ export function Sidebar() {
             )}
           >
             <div className={cn(
-              'flex-shrink-0 rounded-md overflow-hidden flex items-center justify-center bg-muted/20',
-              'transition-all duration-300',
-              sidebarCollapsed ? 'w-8 h-8' : 'w-10 h-10'
+              'shrink-0 rounded-md overflow-hidden flex items-center justify-center bg-muted/20',
+              SIDEBAR_SIZES.COVER
             )}>
-              <Plus size={sidebarCollapsed ? 16 : 20} className="text-text/60" />
+              <Plus size={SIDEBAR_SIZES.ICON} className="text-text/60" />
             </div>
             <span
               className={cn(
-                'font-medium text-sm whitespace-nowrap overflow-hidden',
-                'transition-all duration-300 ease-out',
-                sidebarCollapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'
+                'font-medium text-sm whitespace-nowrap',
+                'transition-opacity duration-200',
+                sidebarCollapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'
               )}
             >
               Create Playlist
@@ -277,7 +295,7 @@ export function Sidebar() {
           ))}
 
           {/* Divider between playlists and liked albums */}
-          {playlists.length > 0 && favoriteAlbums.length > 0 && !sidebarCollapsed && (
+          {playlists.length > 0 && favoriteAlbums.length > 0 && (
             <div className="mx-2 my-2 border-t border-white/5" />
           )}
 
@@ -309,23 +327,10 @@ export function Sidebar() {
         <div
           className={cn(
             'absolute bottom-0 left-0 right-0 h-6 z-10 pointer-events-none',
-            'bg-gradient-to-t from-surface/80 to-transparent',
+            'bg-linear-to-t from-surface/80 to-transparent',
             'transition-opacity duration-200',
             showBottomShadow ? 'opacity-100' : 'opacity-0'
           )}
-        />
-      </div>
-
-      {/* Settings - Same height as header/player bar */}
-      <div className={cn(
-        'px-3 flex items-center border-t border-white/5 flex-shrink-0',
-        LAYOUT_CLASSES.BAR_HEIGHT
-      )}>
-        <NavButton
-          item={{ icon: <Settings size={20} />, label: 'Settings', route: 'settings' }}
-          isActive={currentRoute.name === 'settings'}
-          isCollapsed={sidebarCollapsed}
-          onClick={() => handleNavigation('settings')}
         />
       </div>
 
@@ -349,19 +354,23 @@ function NavButton({ item, isActive, isCollapsed, onClick }: NavButtonProps) {
             <button
       onClick={onClick}
               className={cn(
-                'w-full flex items-center gap-3 px-3 h-10 rounded-xl',
+        'w-full flex items-center gap-3 px-2 py-1.5 rounded-lg',
                 'text-text/70 hover:text-text hover:bg-white/5',
                 'transition-all duration-200',
                 'focus-ring',
                 isActive && 'text-text bg-white/8'
               )}
             >
-              <span className="flex-shrink-0">{item.icon}</span>
+      {/* Icon container - fixed size */}
+      <div className={cn('shrink-0 flex items-center justify-center', SIDEBAR_SIZES.COVER)}>
+        {item.icon}
+      </div>
+      {/* Text - only toggle visibility */}
               <span
                 className={cn(
-          'font-medium whitespace-nowrap flex-1 text-left',
+          'font-medium text-sm whitespace-nowrap flex-1 text-left',
                   'transition-opacity duration-200',
-          isCollapsed ? 'opacity-0' : 'opacity-100'
+          isCollapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'
                 )}
               >
                 {item.label}
@@ -430,7 +439,7 @@ function CollectionItem({
     );
   };
 
-  // Get the type badge icon
+  // Get the type badge icon - fixed size
   const TypeBadge = () => {
     // Following and Liked have their own special covers - no badge needed
     if (type === 'liked' || type === 'following') return null;
@@ -445,9 +454,9 @@ function CollectionItem({
         'bg-base/70 backdrop-blur-md',
         'ring-1 ring-white/10',
         'shadow-sm shadow-base/50',
-        isCollapsed ? 'w-3.5 h-3.5' : 'w-4 h-4'
+        SIDEBAR_SIZES.BADGE
       )}>
-        <Icon size={isCollapsed ? 7 : 9} className="text-text/70" />
+        <Icon size={SIDEBAR_SIZES.BADGE_ICON} className="text-text/70" />
       </div>
     );
   };
@@ -464,11 +473,11 @@ function CollectionItem({
         isActive && 'text-text bg-white/8'
           )}
         >
-      {/* Cover Art with Type Badge */}
-      <div className="relative flex-shrink-0">
+      {/* Cover Art with Type Badge - fixed size */}
+      <div className="relative shrink-0">
         <div className={cn(
-          'rounded-md overflow-hidden transition-all duration-300',
-          isCollapsed ? 'w-8 h-8' : 'w-10 h-10',
+          'overflow-hidden',
+          SIDEBAR_SIZES.COVER,
           // Rounded for playlists/liked, square for albums
           type === 'album' ? 'rounded' : 'rounded-md'
         )}>
@@ -477,12 +486,12 @@ function CollectionItem({
         <TypeBadge />
       </div>
 
-      {/* Name and metadata - always render, animate opacity */}
+      {/* Name and metadata - only toggle visibility */}
       <div
         className={cn(
-          'flex-1 min-w-0 text-left overflow-hidden',
-          'transition-all duration-300 ease-out',
-          isCollapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'
+          'flex-1 min-w-0 text-left',
+          'transition-opacity duration-200',
+          isCollapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'
         )}
       >
         <span className="font-medium text-sm truncate block whitespace-nowrap">{name}</span>

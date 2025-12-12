@@ -2,7 +2,7 @@
  * Bandcamp Scraper
  *
  * Extracts data from Bandcamp pages by parsing HTML.
- * Ported from Python implementation in _research/scrape_artist.py
+ * Uses centralized request handler for all HTTP requests.
  */
 
 import type {
@@ -16,70 +16,15 @@ import type {
   ItemType,
 } from '@/types';
 import { extractArtIdFromUrl, extractImageIdFromUrl, buildArtUrl, ImageSizes } from '@/types';
-import { proxyFetch } from './fetchProxy';
+import { fetchHtml, fetchHtmlWithRedirect, buildMusicUrl } from './request';
 
 // ============================================
-// Constants
+// HTML Parsing
 // ============================================
-
-const DELAYS = {
-  betweenRequests: 300,
-  afterError: 2000,
-};
-
-// ============================================
-// Fetch Helpers
-// ============================================
-
-/**
- * Result of fetching HTML with redirect tracking
- */
-interface FetchHtmlResult {
-  html: string;
-  finalUrl: string;
-  wasRedirected: boolean;
-}
-
-async function fetchHtml(url: string): Promise<string> {
-  const result = await fetchHtmlWithRedirect(url);
-  return result.html;
-}
-
-/**
- * Fetch HTML and track redirects (useful for detecting single-track artists)
- * Uses proxyFetch to work in both extension and content script contexts
- */
-async function fetchHtmlWithRedirect(url: string): Promise<FetchHtmlResult> {
-  console.log('[Scraper] Fetching:', url);
-
-  const response = await proxyFetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`);
-  }
-
-  const html = await response.text();
-  const finalUrl = response.url;
-
-  // Compare normalized paths to detect redirect (ignore trailing slash, case, etc.)
-  const requestedPath = new URL(url).pathname.replace(/\/$/, '').toLowerCase();
-  const finalPath = new URL(finalUrl).pathname.replace(/\/$/, '').toLowerCase();
-  const wasRedirected = requestedPath !== finalPath;
-
-  if (wasRedirected) {
-    console.log('[Scraper] Redirected from', requestedPath, 'to', finalPath);
-  }
-
-  return { html, finalUrl, wasRedirected };
-}
 
 function parseHtml(html: string): Document {
   const parser = new DOMParser();
   return parser.parseFromString(html, 'text/html');
-}
-
-async function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ============================================
@@ -111,6 +56,25 @@ function extractLdJson(doc: Document): any | null {
     console.error('[Scraper] Failed to parse ld+json');
     return null;
   }
+}
+
+/**
+ * Extract background image ID from inline CSS styles
+ * Bandcamp stores custom backgrounds in style tags like:
+ * background-image: url(https://f4.bcbits.com/img/0041780408_130.jpg);
+ */
+function extractBackgroundImageId(doc: Document): number | undefined {
+  // Look for background-image in style tags
+  const styleTags = doc.querySelectorAll('style');
+  for (const style of styleTags) {
+    const content = style.textContent || '';
+    // Match background-image: url(https://f4.bcbits.com/img/XXXXXXXXXX_XXX.jpg)
+    const match = content.match(/background-image:\s*url\(['"]*https?:\/\/f\d\.bcbits\.com\/img\/(\d+)_\d+\.jpg['"]*\)/);
+    if (match && match[1]) {
+      return parseInt(match[1], 10);
+    }
+  }
+  return undefined;
 }
 
 // ============================================
@@ -165,7 +129,55 @@ export async function searchBandcamp(query: string): Promise<SearchResults> {
     }
   });
 
+  // If no results, try query as subdomain (direct artist URL)
+  const hasResults = results.artists.length > 0 || results.albums.length > 0 || results.tracks.length > 0;
+  if (!hasResults) {
+    const directResult = await tryDirectArtistLookup(query);
+    if (directResult) {
+      results.artists.push(directResult);
+    }
+  }
+
   return results;
+}
+
+/**
+ * Try to fetch the query directly as a Bandcamp subdomain
+ * Useful when search returns no results but the artist exists
+ */
+async function tryDirectArtistLookup(query: string): Promise<SearchResult | null> {
+  // Clean the query to make it a valid subdomain
+  // Remove spaces, special chars, convert to lowercase
+  const subdomain = query
+    .toLowerCase()
+    .replace(/\s+/g, '') // Remove spaces
+    .replace(/[^a-z0-9-]/g, ''); // Keep only alphanumeric and hyphens
+
+  if (!subdomain || subdomain.length < 2) {
+    return null;
+  }
+
+  const artistUrl = `https://${subdomain}.bandcamp.com`;
+  console.log('[Scraper] No search results, trying direct URL:', artistUrl);
+
+  try {
+    const artist = await fetchArtistPage(artistUrl);
+
+    // Successfully fetched - create a search result from it
+    return {
+      type: 'artist',
+      id: artist.band.id,
+      name: artist.band.name,
+      url: artist.band.url,
+      imageUrl: artist.band.imageId
+        ? `https://f4.bcbits.com/img/${String(artist.band.imageId).padStart(10, '0')}_7.jpg`
+        : undefined,
+    };
+  } catch (error) {
+    // Artist doesn't exist at this subdomain
+    console.log('[Scraper] Direct lookup failed:', (error as Error).message);
+    return null;
+  }
 }
 
 // ============================================
@@ -222,9 +234,8 @@ export async function fetchArtistPage(artistUrl: string): Promise<ArtistPage> {
  * If /music redirects to a track/album, the artist only has one release
  */
 export async function fetchArtistPageWithRedirect(artistUrl: string): Promise<ArtistPageResult> {
-  // Ensure URL ends with /music - this is critical!
-  // The root URL (/) may redirect to latest release, but /music only redirects for single-release artists
-  const url = artistUrl.replace(/\/?$/, '/music');
+  // Always build /music URL from base domain to ensure we get discography
+  const url = buildMusicUrl(artistUrl);
   console.log('[Scraper] Fetching artist /music page:', url);
 
   const { html, finalUrl, wasRedirected } = await fetchHtmlWithRedirect(url);
@@ -269,6 +280,9 @@ export async function fetchArtistPageWithRedirect(artistUrl: string): Promise<Ar
     }
   }
 
+  // Extract background image ID from inline CSS
+  const backgroundImageId = extractBackgroundImageId(doc);
+
   const band: Band = {
     id: bandData.id,
     name: bandData.name,
@@ -276,6 +290,7 @@ export async function fetchArtistPageWithRedirect(artistUrl: string): Promise<Ar
     url: bandData.url || artistUrl,
     accountId: bandData.account_id,
     imageId: imageId || undefined,
+    backgroundImageId,
     location: doc.querySelector('.location')?.textContent?.trim() || undefined,
     bio: doc.querySelector('#bio-text')?.textContent?.trim() || undefined,
     links: [],
@@ -396,6 +411,135 @@ export async function fetchArtistPageWithRedirect(artistUrl: string): Promise<Ar
       discographyRealSize,
     },
   };
+}
+
+/**
+ * Fetch just the release list from an artist's /music page
+ * This is a lightweight check used to detect new releases without fetching all data
+ * Returns null if fetch fails (don't throw - this is used for background checks)
+ */
+export async function fetchArtistReleaseList(artistUrl: string): Promise<DiscographyItem[] | null> {
+  try {
+    // Always build /music URL from base domain
+    const url = buildMusicUrl(artistUrl);
+    console.log('[Scraper] Fetching release list from:', url);
+
+    const { html, finalUrl, wasRedirected } = await fetchHtmlWithRedirect(url);
+
+    // If redirected to a single release, artist has only one release
+    if (wasRedirected) {
+      const urlObj = new URL(finalUrl);
+      const pathParts = urlObj.pathname.split('/').filter(Boolean);
+
+      if (pathParts[0] === 'track' || pathParts[0] === 'album') {
+        // Parse the single release to get its info
+        const doc = parseHtml(html);
+        const tralbumData = extractJsonFromAttribute(doc, 'script[data-tralbum]', 'data-tralbum');
+        const bandData = extractJsonFromAttribute(doc, 'script[data-band]', 'data-band');
+
+        if (tralbumData && bandData) {
+          const artId = tralbumData.art_id?.toString() || extractArtIdFromUrl(
+            doc.querySelector('.popupImage img')?.getAttribute('src') || ''
+          );
+
+          return [{
+            itemType: pathParts[0] as ItemType,
+            itemId: tralbumData.id || tralbumData.current?.id,
+            bandId: bandData.id,
+            url: finalUrl,
+            relativeUrl: urlObj.pathname,
+            title: tralbumData.current?.title || '',
+            artUrl: artId ? buildArtUrl(artId, ImageSizes.MEDIUM_700) : '',
+            artId: artId || undefined,
+          }];
+        }
+      }
+      return null;
+    }
+
+    // Parse the /music page for releases
+    const doc = parseHtml(html);
+    const bandData = extractJsonFromAttribute(doc, 'script[data-band]', 'data-band');
+    if (!bandData) return null;
+
+    const releases: DiscographyItem[] = [];
+    const seenIds = new Set<number>();
+
+    // Get items from HTML
+    const gridItems = doc.querySelectorAll('#music-grid .music-grid-item');
+    gridItems.forEach((li) => {
+      const dataItemId = li.getAttribute('data-item-id') || '';
+      const dataBandId = li.getAttribute('data-band-id') || '';
+
+      if (!dataItemId.includes('-')) return;
+
+      const [itemType, itemIdStr] = dataItemId.split('-');
+      const itemId = parseInt(itemIdStr, 10);
+
+      if (seenIds.has(itemId)) return;
+      seenIds.add(itemId);
+
+      const link = li.querySelector('a');
+      const href = link?.getAttribute('href') || '';
+      const title = li.querySelector('.title')?.textContent?.trim() || '';
+      const artistOverride = li.querySelector('.artist-override')?.textContent?.trim() || undefined;
+      const artImg = li.querySelector('img');
+
+      const imgSrc = artImg?.getAttribute('src') || '';
+      const imgDataOriginal = artImg?.getAttribute('data-original') || '';
+      const rawArtUrl = (imgSrc.includes('/img/0.gif') || imgSrc === '') ? imgDataOriginal : imgSrc;
+      const finalArtUrl = rawArtUrl || imgDataOriginal;
+      const artId = extractArtIdFromUrl(finalArtUrl);
+      const artUrl = artId ? buildArtUrl(artId, ImageSizes.MEDIUM_700) : finalArtUrl;
+
+      releases.push({
+        itemType: itemType as ItemType,
+        itemId,
+        bandId: parseInt(dataBandId, 10) || bandData.id,
+        url: href.startsWith('http') ? href : `${bandData.url}${href}`,
+        relativeUrl: href,
+        title: artistOverride ? title.replace(artistOverride, '').trim() : title,
+        artistOverride,
+        artUrl: artUrl || '',
+        artId: artId || undefined,
+      });
+    });
+
+    // Get lazy-loaded items from data-client-items
+    const musicGrid = doc.querySelector('#music-grid');
+    const clientItemsRaw = musicGrid?.getAttribute('data-client-items');
+
+    if (clientItemsRaw) {
+      try {
+        const clientItems = JSON.parse(clientItemsRaw);
+        clientItems.forEach((item: any) => {
+          if (seenIds.has(item.id)) return;
+          seenIds.add(item.id);
+
+          const artId = item.art_id?.toString() || extractArtIdFromUrl(item.art_url || '');
+
+          releases.push({
+            itemType: item.type as ItemType,
+            itemId: item.id,
+            bandId: item.band_id || bandData.id,
+            url: item.page_url || `${bandData.url}/${item.type}/${item.slug_text}`,
+            relativeUrl: `/${item.type}/${item.slug_text}`,
+            title: item.title,
+            artistOverride: item.artist,
+            artUrl: artId ? buildArtUrl(artId, ImageSizes.MEDIUM_700) : '',
+            artId: artId || undefined,
+          });
+        });
+      } catch (e) {
+        // Ignore JSON parse errors
+      }
+    }
+
+    return releases;
+  } catch (error) {
+    console.warn('[Scraper] Failed to fetch release list:', error);
+    return null;
+  }
 }
 
 // ============================================

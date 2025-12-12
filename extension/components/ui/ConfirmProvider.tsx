@@ -179,7 +179,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           {/* Icon */}
           {state.options.icon && (
             <div className={cn(
-              'flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center',
+              'shrink-0 w-12 h-12 rounded-xl flex items-center justify-center',
               'border',
               styles.bg,
               styles.text,

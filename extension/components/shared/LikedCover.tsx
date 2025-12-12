@@ -32,7 +32,7 @@ export function LikedCover({ size = 'large', className }: LikedCoverProps) {
       )}
     >
       {/* Background gradient - love to iris */}
-      <div className="absolute inset-0 bg-gradient-to-br from-love via-rose to-iris" />
+      <div className="absolute inset-0 bg-linear-to-br from-love via-rose to-iris" />
 
       {/* Animated glow orbs */}
       <div className="absolute inset-0 overflow-hidden">
@@ -68,7 +68,7 @@ export function LikedCover({ size = 'large', className }: LikedCoverProps) {
       </div>
 
       {/* Shine effect */}
-      <div className="absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-linear-to-br from-white/20 via-transparent to-transparent" />
     </div>
   );
 }

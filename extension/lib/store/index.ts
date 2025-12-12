@@ -7,7 +7,7 @@ export { useArtistStore } from './artistStore';
 export { useAlbumStore } from './albumStore';
 export { useLibraryStore, type SortOption, type HistoryGrouping } from './libraryStore';
 export { usePlaylistStore, type PlaylistWithTracks } from './playlistStore';
-export { useSettingsStore, EQ_FREQUENCIES, EQ_PRESETS, type EqualizerPreset } from './settingsStore';
+export { useSettingsStore } from './settingsStore';
 
 // Initialize cross-store dependencies (avoids circular imports)
 import { useRouterStore } from './routerStore';

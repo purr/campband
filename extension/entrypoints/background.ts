@@ -44,12 +44,12 @@ const storageArea = browser.storage.local;
  * Uses GitHub Pages host for production (allows other extensions to detect audio)
  * Falls back to extension page if host is unreachable
  */
-async function openCampBandTab(hash?: string): Promise<browser.Tabs.Tab> {
+async function openCampBandTab(hash?: string): Promise<Browser.tabs.Tab> {
   const hostUrl = CAMPBAND_HOST_URL;
   const extensionUrl = browser.runtime.getURL('/app.html');
-  
+
   const tabs = await browser.tabs.query({});
-  
+
   // Check for existing CampBand tab (either host or extension page)
   const existingHostTab = tabs.find(tab => tab.url?.startsWith(hostUrl));
   const existingExtTab = tabs.find(tab => tab.url?.startsWith(extensionUrl));
@@ -111,7 +111,12 @@ async function handleProxyFetch(
 ): Promise<{ ok: boolean; status: number; statusText: string; text: string; url: string } | { error: string }> {
   try {
     console.log('[CampBand] Proxying fetch:', url);
-    const response = await fetch(url, options);
+    // Always bypass browser cache and explicitly follow redirects
+    const response = await fetch(url, {
+      ...options,
+      cache: 'no-store',
+      redirect: 'follow',
+    });
     const text = await response.text();
 
     return {

@@ -123,6 +123,15 @@ export function PlaylistModal() {
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      // Don't submit if there's a validation error or no name
+      if (!name.trim() || nameError || isSubmitting) return;
+      handleSubmit();
+    }
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -245,6 +254,7 @@ export function PlaylistModal() {
             type="text"
             value={name}
             onChange={(e) => handleNameChange(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="My awesome playlist"
             maxLength={100}
             className={cn(

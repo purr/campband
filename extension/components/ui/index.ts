@@ -11,9 +11,8 @@ export { ImageBackdrop } from './ImageBackdrop';
 export { BaseModal, ModalButton, ModalButtonGroup, type BaseModalProps, type BaseModalRef } from './BaseModal';
 export { PlaylistModal, CreatePlaylistModal } from './PlaylistModal';
 export { ConfirmProvider, useConfirm, useUnlikeConfirm } from './ConfirmProvider';
-export { ContextMenuProvider } from './ContextMenu';
 export { Dropdown, type DropdownOption } from './Dropdown';
-// New unified context menu system
+// Unified context menu system - handles tracks, albums, artists, playlists
 export { GlobalContextMenu, useContextMenu } from './GlobalContextMenu';
 export { PlayingIndicator } from './PlayingIndicator';
 export { EmptyState, type EmptyStateProps } from './EmptyState';

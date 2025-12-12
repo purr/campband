@@ -56,9 +56,9 @@ export function FollowingPage() {
     const artists = [...favoriteArtists];
     switch (sortBy) {
       case 'recent':
-        return artists.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+        return artists.sort((a, b) => b.addedAt - a.addedAt);
       case 'oldest':
-        return artists.sort((a, b) => new Date(a.addedAt).getTime() - new Date(b.addedAt).getTime());
+        return artists.sort((a, b) => a.addedAt - b.addedAt);
       case 'name':
         return artists.sort((a, b) => a.name.localeCompare(b.name));
       default:
@@ -69,8 +69,8 @@ export function FollowingPage() {
   if (!isInitialized) {
     return (
       <div className="min-h-full">
-        <Header
-          count={0}
+        <Header />
+        <Toolbar
           viewMode={followingViewMode}
           onViewModeChange={setFollowingViewMode}
           sortBy={sortBy}
@@ -87,8 +87,8 @@ export function FollowingPage() {
 
   return (
     <div className="min-h-full">
-      <Header
-        count={favoriteArtists.length}
+      <Header />
+      <Toolbar
         viewMode={followingViewMode}
         onViewModeChange={setFollowingViewMode}
         sortBy={sortBy}
@@ -123,29 +123,27 @@ export function FollowingPage() {
 }
 
 // ============================================
-// Header Component
+// Header Component (clean, no controls)
 // ============================================
 
-interface HeaderProps {
-  count: number;
+function Header() {
+  return <PageHeader />;
+}
+
+// ============================================
+// Toolbar Component (sort & view controls)
+// ============================================
+
+interface ToolbarProps {
   viewMode: 'grid' | 'list' | 'detailed';
   onViewModeChange: (mode: 'grid' | 'list' | 'detailed') => void;
   sortBy: SortOption;
   onSortChange: (sort: SortOption) => void;
 }
 
-function Header({ count, viewMode, onViewModeChange, sortBy, onSortChange }: HeaderProps) {
+function Toolbar({ viewMode, onViewModeChange, sortBy, onSortChange }: ToolbarProps) {
   return (
-    <PageHeader
-      title={
-        <>
-          <User size={20} className="text-foam" />
-          Following
-        </>
-      }
-      subtitle={`${count} artists`}
-      right={
-        <>
+    <div className="flex items-center justify-between px-6 py-3 border-b border-white/5">
           <Dropdown
             value={sortBy}
             options={sortOptions}
@@ -178,9 +176,7 @@ function Header({ count, viewMode, onViewModeChange, sortBy, onSortChange }: Hea
               <List size={16} />
             </button>
           </div>
-        </>
-      }
-    />
+    </div>
   );
 }
 
@@ -283,7 +279,7 @@ function ArtistsList({ artists, onArtistClick, onRemove, onContextMenu }: Artist
           {/* Avatar */}
           <button
             onClick={() => onArtistClick(artist.url)}
-            className="flex-shrink-0"
+            className="shrink-0"
           >
             <div className="w-14 h-14 rounded-full overflow-hidden bg-highlight-med shadow-lg">
               {artist.imageId ? (

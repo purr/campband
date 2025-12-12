@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Grid3X3, List } from 'lucide-react';
+import { Grid3X3, List } from 'lucide-react';
 import { cn, linkifyText, shuffleTracks } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
 import { ArtistHeader, ArtistHeaderSkeleton, ReleaseGrid, ReleaseGridSkeleton } from '@/components/artist';
 import { useRouterStore, useArtistStore, useQueueStore, usePlayerStore, useUIStore } from '@/lib/store';
-import type { DiscographyItem, Track } from '@/types';
+import type { DiscographyItem } from '@/types';
 
 interface ArtistPageProps {
   artistUrl: string;
@@ -101,17 +101,7 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
   return (
     <div className="min-h-full pb-8">
       {/* Navigation */}
-      <PageHeader
-        title={currentArtist?.band.name}
-        right={
-          isLoadingAll ? (
-            <div className="flex items-center gap-2 text-sm text-muted">
-              <Loader2 size={16} className="animate-spin" />
-              Loading tracks...
-            </div>
-          ) : undefined
-        }
-      />
+      <PageHeader />
 
       {/* Header */}
       {isLoading || !currentArtist ? (

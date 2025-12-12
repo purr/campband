@@ -12,6 +12,8 @@ export {
 } from './format';
 export { linkifyText } from './linkify';
 export {
+  cleanTrackTitle,
+  getDisplayTitle,
   toPlayableTrack,
   toPlayableTracks,
   historyEntryToTrack,

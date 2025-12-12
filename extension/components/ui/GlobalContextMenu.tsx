@@ -1,12 +1,34 @@
+/**
+ * GlobalContextMenu - Unified context menu system for all right-click menus
+ *
+ * This provides consistent context menus across the entire app:
+ * - Track context menu (add to queue, playlist, like, etc.)
+ * - Album context menu (play all, add to queue, like, etc.)
+ * - Artist context menu (follow, go to page, etc.)
+ * - Playlist context menu (edit, delete, etc.)
+ * - Liked songs context menu
+ *
+ * Architecture:
+ * - State managed via contextMenuCoordinator (lib/utils/contextMenuCoordinator.ts)
+ * - Rendered via React Portal to document.body (escapes parent stacking contexts)
+ * - Position auto-adjusts to stay within viewport
+ * - Submenus for "Add to Playlist" with smooth hover transitions
+ *
+ * Usage:
+ * const { openTrackMenu, openAlbumMenu, openArtistMenu, openPlaylistMenu } = useContextMenu();
+ * <div onContextMenu={(e) => openTrackMenu(e, track)} />
+ *
+ * State is global (no React context needed), so useContextMenu() can be called anywhere.
+ */
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ListPlus, ListEnd, Plus, ChevronRight, Heart, Link, Check, X,
   ExternalLink, Play, Loader2, Pencil, Trash2
 } from 'lucide-react';
-import { cn, toPlayableTrack, getMenuState, closeContextMenu, scheduleCloseFromMousedown, cancelPendingClose, subscribeToContextMenu } from '@/lib/utils';
-import { usePlaylistStore, useQueueStore, useUIStore, useLibraryStore, useSettingsStore, usePlayerStore, useArtistStore } from '@/lib/store';
-import { fetchReleasePage } from '@/lib/api';
+import { cn, toPlayableTrack, getDisplayTitle, getMenuState, closeContextMenu, scheduleCloseFromMousedown, cancelPendingClose, subscribeToContextMenu } from '@/lib/utils';
+import { usePlaylistStore, useQueueStore, useUIStore, useLibraryStore, useSettingsStore, usePlayerStore, useArtistStore, useAlbumStore } from '@/lib/store';
 import { PlaylistCover } from '@/components/shared';
 import { useUnlikeConfirm } from './ConfirmProvider';
 import type { Playlist } from '@/lib/db';
@@ -242,7 +264,7 @@ function TrackMenuContent({ track }: { track: TrackData }) {
   return (
     <>
       <div className="px-3 pb-2 mb-1 border-b border-white/5 max-w-full overflow-hidden">
-        <p className="text-sm font-medium text-text truncate max-w-[236px]">{track.title}</p>
+        <p className="text-sm font-medium text-text truncate max-w-[236px]">{getDisplayTitle(track)}</p>
         {track.artist && (
           <p className="text-xs text-text/60 truncate max-w-[236px]">{track.artist}</p>
         )}
@@ -317,6 +339,7 @@ function AlbumMenuContent({ album }: { album: AlbumData }) {
   const { isFavoriteAlbum, addFavoriteAlbum, removeFavoriteAlbum } = useLibraryStore();
   const { setQueue, addMultipleToQueue, insertMultipleNext } = useQueueStore();
   const { play } = usePlayerStore();
+  const { getAlbumWithCache } = useAlbumStore();
   const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
   const { confirmUnlikeAlbum } = useUnlikeConfirm();
   const [copied, setCopied] = useState(false);
@@ -330,7 +353,8 @@ function AlbumMenuContent({ album }: { album: AlbumData }) {
     if (album.tracks && album.tracks.length > 0) {
       return album.tracks.filter(t => t.streamUrl) as Track[];
     }
-    const releaseData = await fetchReleasePage(album.url);
+    // Use cache instead of direct fetch
+    const releaseData = await getAlbumWithCache(album.url);
     return releaseData.tracks.filter(t => t.streamUrl);
   };
 
@@ -687,6 +711,8 @@ function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
   const { setQueue, addMultipleToQueue, insertMultipleNext } = useQueueStore();
   const { play } = usePlayerStore();
   const { openEditPlaylistModal } = useUIStore();
+  const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
+  const { confirmDeletePlaylist } = useUnlikeConfirm();
   const [isDeleting, setIsDeleting] = useState(false);
   const [playingNext, setPlayingNext] = useState(false);
   const [addedToQueue, setAddedToQueue] = useState(false);
@@ -731,10 +757,21 @@ function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
   };
 
   const handleDelete = async () => {
-    if (playlist.id) {
-      setIsDeleting(true);
-      await deletePlaylist(playlist.id);
+    if (!playlist.id) return;
+
+    const hasTracks = playlist.trackIds.length > 0;
+
+    // Confirm deletion if setting is enabled and playlist has tracks
+    if (confirmOnUnlike && hasTracks) {
+      const confirmed = await confirmDeletePlaylist(playlist.name);
+      if (!confirmed) {
+        closeContextMenu();
+        return;
+      }
     }
+
+    setIsDeleting(true);
+    await deletePlaylist(playlist.id);
     closeContextMenu();
   };
 
@@ -1049,10 +1086,17 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, isVisible, setIs
 
       // Get actual picker height after render (or estimate)
       const pickerHeight = pickerRef.current?.offsetHeight || 300;
+      const viewportHeight = window.innerHeight;
 
-      // Vertical positioning - align bottom of picker with bottom of parent button
+      // Vertical positioning - try to align TOP of picker with TOP of parent button
       // This keeps the picker close to the "Add to Playlist" item
-      let y = parentRect.bottom - pickerHeight;
+      let y = parentRect.top;
+
+      // Make sure it doesn't overflow below the viewport
+      if (y + pickerHeight > viewportHeight - 16) {
+        // Align bottom of picker with bottom of viewport (with padding)
+        y = viewportHeight - pickerHeight - 16;
+      }
 
       // Make sure it doesn't go above the viewport
       y = Math.max(8, y);
@@ -1109,7 +1153,7 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, isVisible, setIs
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="px-1 pb-1 border-b border-white/5 flex-shrink-0">
+      <div className="px-1 pb-1 border-b border-white/5 shrink-0">
         <button
           onClick={handleCreatePlaylist}
           className={cn(
@@ -1119,7 +1163,7 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, isVisible, setIs
             'transition-colors duration-100'
           )}
         >
-          <div className="w-8 h-8 rounded bg-highlight-med flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded bg-highlight-med flex items-center justify-center shrink-0">
             <Plus size={14} className="text-text/60" />
           </div>
           <span className="truncate">New Playlist</span>
@@ -1148,7 +1192,7 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, isVisible, setIs
                       : 'text-text hover:bg-white/10'
                   )}
                 >
-                  <div className="w-8 h-8 rounded bg-highlight-med overflow-hidden flex-shrink-0">
+                  <div className="w-8 h-8 rounded bg-highlight-med overflow-hidden shrink-0">
                     <PlaylistCover
                       coverImage={playlist.coverImage}
                       artIds={getPlaylistArtIds(playlist.trackIds)}
@@ -1159,8 +1203,8 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, isVisible, setIs
                   <span className="truncate flex-1">{playlist.name}</span>
                   {alreadyInPlaylist && (
                     <>
-                      <Check size={14} className="text-foam flex-shrink-0 group-hover/item:hidden" />
-                      <X size={14} className="text-love flex-shrink-0 hidden group-hover/item:block" />
+                      <Check size={14} className="text-foam shrink-0 group-hover/item:hidden" />
+                      <X size={14} className="text-love shrink-0 hidden group-hover/item:block" />
                     </>
                   )}
                 </button>

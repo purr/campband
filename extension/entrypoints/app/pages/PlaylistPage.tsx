@@ -150,7 +150,7 @@ export function PlaylistPage({ playlistId }: PlaylistPageProps) {
     if (!isLoading && !playlist) {
       return (
         <div className="min-h-full">
-          <PageHeader title="Playlist" />
+          <PageHeader />
           <EmptyState
             icon={<Music size={48} />}
             title="Playlist not found"
@@ -179,7 +179,7 @@ export function PlaylistPage({ playlistId }: PlaylistPageProps) {
 
   return (
     <div className="min-h-full pb-8">
-      <PageHeader title={playlist.name} />
+      <PageHeader />
 
       <CollectionHeader
         title={playlist.name}

@@ -32,7 +32,7 @@ export function FollowingCover({ size = 'large', className }: FollowingCoverProp
       )}
     >
       {/* Background gradient - pine to foam */}
-      <div className="absolute inset-0 bg-gradient-to-br from-pine via-foam/80 to-iris" />
+      <div className="absolute inset-0 bg-linear-to-br from-pine via-foam/80 to-iris" />
 
       {/* Animated glow orbs */}
       <div className="absolute inset-0 overflow-hidden">
@@ -66,7 +66,7 @@ export function FollowingCover({ size = 'large', className }: FollowingCoverProp
       </div>
 
       {/* Shine effect */}
-      <div className="absolute inset-0 bg-gradient-to-br from-white/20 via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-linear-to-br from-white/20 via-transparent to-transparent" />
     </div>
   );
 }

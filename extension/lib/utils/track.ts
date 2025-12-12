@@ -6,6 +6,75 @@
 import type { Track } from '@/types';
 import type { FavoriteTrack, HistoryEntry } from '@/lib/db';
 
+// ============================================
+// Title Cleaning - Remove redundant artist prefix
+// ============================================
+
+/**
+ * Various dash characters that might be used as separators
+ * Includes: hyphen (-), en dash (–), em dash (—), minus sign (−)
+ */
+const DASH_CHARS = ['-', '–', '—', '−'];
+
+/**
+ * Regex pattern to match artist prefix at the start of a title
+ * Matches: "Artist - Title", "Artist- Title", "Artist -Title", "Artist-Title"
+ * Case-insensitive, handles various dash types
+ */
+function createArtistPrefixPattern(artist: string): RegExp {
+  // Escape special regex characters in artist name
+  const escapedArtist = artist.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Create pattern: artist name + optional space + any dash + optional space
+  const dashPattern = DASH_CHARS.map(d => `\\${d}`).join('|');
+  return new RegExp(`^${escapedArtist}\\s*(?:${dashPattern})\\s*`, 'i');
+}
+
+/**
+ * Clean a track title by removing redundant artist prefix
+ *
+ * Examples:
+ *   cleanTrackTitle("Sadness - Song Title", "Sadness") → "Song Title"
+ *   cleanTrackTitle("SADNESS - Song Title", "Sadness") → "Song Title" (case-insensitive)
+ *   cleanTrackTitle("Sadness—Song Title", "Sadness") → "Song Title" (em dash)
+ *   cleanTrackTitle("Other Artist - Song", "Sadness") → "Other Artist - Song" (no match)
+ *   cleanTrackTitle("Sadness & Joy - Song", "Sadness") → "Sadness & Joy - Song" (partial match, no change)
+ *
+ * @param title - The original track title
+ * @param artist - The artist name to check for
+ * @returns The cleaned title, or original if no artist prefix found
+ */
+export function cleanTrackTitle(title: string, artist: string | undefined): string {
+  // No artist to check against
+  if (!artist || !title) {
+    return title;
+  }
+
+  // Create pattern for this specific artist
+  const pattern = createArtistPrefixPattern(artist);
+
+  // Check if title starts with artist prefix
+  const match = title.match(pattern);
+  if (match) {
+    // Remove the matched prefix
+    const cleaned = title.slice(match[0].length).trim();
+    // Only use cleaned version if there's something left
+    if (cleaned.length > 0) {
+      return cleaned;
+    }
+  }
+
+  return title;
+}
+
+/**
+ * Get the display title for a track (cleaned of artist prefix)
+ * This is the canonical way to get a title for display purposes
+ */
+export function getDisplayTitle(track: { title: string; artist?: string; bandName?: string }): string {
+  const artist = track.artist || track.bandName;
+  return cleanTrackTitle(track.title, artist);
+}
+
 /**
  * Any track-like object that can be converted to a playable Track
  */
@@ -32,13 +101,18 @@ export interface PartialTrack {
 /**
  * Convert any track-like object to a full playable Track format
  * This is the canonical way to prepare tracks for the queue/player
+ * Automatically computes displayTitle by removing artist prefix if present
  */
 export function toPlayableTrack(track: TrackLike): Track {
+  const artist = 'artist' in track ? track.artist : track.bandName;
+  const displayTitle = cleanTrackTitle(track.title, artist || track.bandName);
+
   return {
     id: track.id,
     trackId: track.id,
     title: track.title,
-    artist: 'artist' in track ? track.artist : track.bandName,
+    displayTitle,
+    artist,
     albumTitle: track.albumTitle,
     albumId: track.albumId,
     albumUrl: track.albumUrl,

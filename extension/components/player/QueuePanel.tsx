@@ -1,10 +1,9 @@
 import { useRef, useState, useEffect } from 'react';
 import { X, Play, Trash2, ListX, GripVertical, Repeat, Repeat1, Shuffle } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getDisplayTitle } from '@/lib/utils';
 import { formatTime } from '@/lib/utils';
 import { IconButton, PlayingIndicator } from '@/components/ui';
 import { useQueueStore, usePlayerStore, useUIStore, useRouterStore } from '@/lib/store';
-import { useSmoothScroll } from '@/hooks/useSmoothScroll';
 import { buildArtUrl, ImageSizes } from '@/types';
 
 export function QueuePanel() {
@@ -27,9 +26,6 @@ export function QueuePanel() {
   const panelRef = useRef<HTMLDivElement>(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
-
-  // Smooth scroll for queue list
-  useSmoothScroll(scrollRef);
 
   // Drag state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -126,11 +122,11 @@ export function QueuePanel() {
         'fixed right-4 bottom-24 z-50',
         'w-80',
         'liquid-glass-glow rounded-2xl',
-        'transition-all duration-300 ease-out',
-        'origin-bottom-right',
+        'transition-[opacity,transform] duration-200 ease-out',
+        'will-change-transform',
         queuePanelOpen
-          ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
-          : 'opacity-0 translate-y-4 scale-95 pointer-events-none'
+          ? 'opacity-100 translate-y-0 pointer-events-auto'
+          : 'opacity-0 translate-y-2 pointer-events-none'
       )}
     >
       {/* Header */}
@@ -201,7 +197,7 @@ export function QueuePanel() {
         <div
           className={cn(
             'absolute top-0 left-0 right-2 h-8 z-10',
-            'bg-gradient-to-b from-base/40 via-base/20 to-transparent',
+            'bg-linear-to-b from-base/40 via-base/20 to-transparent',
             'pointer-events-none transition-opacity duration-200',
             canScrollUp ? 'opacity-100' : 'opacity-0'
           )}
@@ -299,7 +295,7 @@ export function QueuePanel() {
         <div
           className={cn(
             'absolute bottom-0 left-0 right-2 h-8 z-10',
-            'bg-gradient-to-t from-base/40 via-base/20 to-transparent',
+            'bg-linear-to-t from-base/40 via-base/20 to-transparent',
             'pointer-events-none transition-opacity duration-200',
             canScrollDown ? 'opacity-100' : 'opacity-0'
           )}
@@ -394,7 +390,7 @@ function QueueTrackItem({
       {/* Art - click to play */}
       <button
         onClick={onPlay}
-        className="w-8 h-8 rounded overflow-hidden bg-highlight-med flex-shrink-0 relative group/play"
+        className="w-8 h-8 rounded overflow-hidden bg-highlight-med shrink-0 relative group/play"
       >
         {track.artId ? (
           <img
@@ -435,7 +431,7 @@ function QueueTrackItem({
             track.albumUrl && ' cursor-pointer'
           )}
         >
-          {track.title}
+          {getDisplayTitle(track)}
         </button>
         <button
           onClick={onArtistClick}

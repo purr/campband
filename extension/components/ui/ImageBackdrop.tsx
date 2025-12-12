@@ -69,7 +69,7 @@ export function ImageBackdrop({
   if (!imageUrl) return null;
 
   // More transparent gradient - glassier look while keeping the fade
-  const defaultGradient = 'bg-gradient-to-b from-transparent via-base/50 to-base';
+  const defaultGradient = 'bg-linear-to-b from-transparent via-base/50 to-base';
 
   return (
     <div
