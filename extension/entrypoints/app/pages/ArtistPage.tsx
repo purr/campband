@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Grid3X3, List } from 'lucide-react';
-import { cn, linkifyText, shuffleTracks } from '@/lib/utils';
+import { cn, shuffleTracks } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
-import { ArtistHeader, ArtistHeaderSkeleton, ReleaseGrid, ReleaseGridSkeleton } from '@/components/artist';
+import { ArtistHeader, ArtistHeaderSkeleton, ReleaseGrid, ReleaseGridSkeleton, ArtistBio } from '@/components/artist';
 import { useRouterStore, useArtistStore, useQueueStore, usePlayerStore, useUIStore } from '@/lib/store';
 import type { DiscographyItem } from '@/types';
 
@@ -128,9 +128,7 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
       {currentArtist?.band.bio && (
         <div className="px-8 py-6">
           <h3 className="text-lg font-semibold text-text mb-3">About</h3>
-          <p className="text-subtle leading-relaxed max-w-3xl whitespace-pre-line">
-            {linkifyText(currentArtist.band.bio)}
-          </p>
+          <ArtistBio bioHtml={currentArtist.band.bio} />
         </div>
       )}
 

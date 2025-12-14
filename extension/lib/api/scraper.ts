@@ -304,7 +304,12 @@ export async function fetchArtistPageWithRedirect(artistUrl: string): Promise<Ar
     imageId: imageId || undefined,
     backgroundImageId,
     location: doc.querySelector('.location')?.textContent?.trim() || undefined,
-    bio: doc.querySelector('#bio-text')?.textContent?.trim() || undefined,
+    bio: (() => {
+      const bioElement = doc.querySelector('#bio-text');
+      if (!bioElement) return undefined;
+      // Get innerHTML to preserve structure for "more"/"less" functionality
+      return bioElement.innerHTML.trim() || undefined;
+    })(),
     links: [],
   };
 
