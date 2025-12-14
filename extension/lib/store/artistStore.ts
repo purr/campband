@@ -132,10 +132,6 @@ export const useArtistStore = create<ArtistState>((set, get) => ({
         console.warn('[ArtistStore] Failed to save to IndexedDB:', e)
       );
 
-      // Pre-cache all releases in background for instant playback
-      console.log('[ArtistStore] Pre-caching releases in background...');
-      preCacheReleasesInBackground(artist);
-
       return artist;
     } catch (error) {
       console.error('[ArtistStore] Failed to load artist:', error);
@@ -426,28 +422,3 @@ async function checkForNewReleasesInBackground(
   }
 }
 
-/**
- * Pre-cache all releases for an artist in background
- * Called after first fetch of an artist
- */
-async function preCacheReleasesInBackground(artist: ArtistPage) {
-  const store = useArtistStore.getState();
-
-  for (const release of artist.releases) {
-    try {
-      // Check if already cached
-      const cached = await db.cachedAlbums.get(release.itemId);
-      if (cached) continue;
-
-      // Fetch and cache
-      await store.loadRelease(release.url, release.itemId);
-
-      // Rate limit to avoid hammering Bandcamp
-      await new Promise(r => setTimeout(r, 300));
-    } catch (e) {
-      console.warn('[ArtistStore] Failed to pre-cache release:', release.title);
-    }
-  }
-
-  console.log('[ArtistStore] Finished pre-caching releases for:', artist.band.name);
-}

@@ -129,6 +129,12 @@ export function useAudioPlayer() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Apply volume/mute early (runs before callbacks effect)
+  useEffect(() => {
+    audioEngine.setVolume(volume);
+    audioEngine.setMuted(isMuted);
+  }, [volume, isMuted]);
+
   // Set up audio engine callbacks
   useEffect(() => {
     audioEngine.setCallbacks({
@@ -256,7 +262,7 @@ export function useAudioPlayer() {
 
     // Don't destroy on cleanup - let audio continue playing across hot reloads
     // Audio engine is a singleton that persists for the lifetime of the app
-  }, [hasNext, playNext, advanceToNext, playTrackAt, setIsPlaying, setCurrentTime, setDuration, setIsBuffering, setError, clearError]);
+  }, [hasNext, playNext, advanceToNext, playTrackAt, setIsPlaying, setCurrentTime, setDuration, setIsBuffering, setError, clearError, volume, isMuted]);
 
   // Track the last track ID we tried to load
   const lastLoadedTrackId = useRef<number | null>(null);
@@ -276,6 +282,10 @@ export function useAudioPlayer() {
     if (!currentTrack?.streamUrl || !currentTrack.streamUrl.startsWith('http')) {
       return;
     }
+
+    // Remember user's intent to play
+    const intendedPlay = isPlaying || shouldAutoPlay.current;
+    shouldAutoPlay.current = intendedPlay;
 
     // Prevent infinite loops - max 2 attempts per track (original + 1 refresh)
     const attempts = failedLoadAttempts.current.get(currentTrack.id) || 0;
@@ -298,8 +308,6 @@ export function useAudioPlayer() {
 
     // For new tracks, force load (user intentionally changed)
     // For same track (hot reload), don't force - let AudioEngine decide
-    shouldAutoPlay.current = isPlaying;
-
     // If this is the first load and we have a saved position, restore it
     if (isFirstLoad.current && currentTime > 0) {
       shouldRestorePosition.current = currentTime;
@@ -310,6 +318,12 @@ export function useAudioPlayer() {
 
     // Async load with stream URL refresh on 410
     const loadTrack = async () => {
+      // Show loading state while switching tracks
+      if (isNewTrack) {
+        setIsBuffering(true);
+        setIsPlaying(false); // show as loading, not playing
+      }
+
       const result = await audioEngine.load(currentTrack.streamUrl!, isNewTrack);
 
       if (!result.success) {
@@ -318,6 +332,8 @@ export function useAudioPlayer() {
           console.log('[useAudioPlayer] Stream URL expired, refreshing...');
           isRefreshingStreamUrl.current = true;
           setIsBuffering(true);
+          setIsPlaying(false); // show loading
+          shouldAutoPlay.current = true; // ensure we auto-play after refresh
 
           try {
             const freshUrl = await refreshStreamUrl(
@@ -340,6 +356,7 @@ export function useAudioPlayer() {
 
               // Track the refresh attempt
               failedLoadAttempts.current.set(currentTrack.id, attempts + 1);
+              shouldAutoPlay.current = true; // play after refreshed load
 
               console.log('[useAudioPlayer] Retrying with fresh stream URL');
               // The state update will trigger this effect again with the fresh URL

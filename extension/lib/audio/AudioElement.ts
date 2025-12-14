@@ -49,6 +49,9 @@ export class AudioElement {
       document.body.appendChild(this.audio);
     }
 
+    // Ensure element is unmuted; volume is controlled via Web Audio graph gain
+    this.audio.muted = false;
+
     return this.audio;
   }
 
@@ -299,6 +302,7 @@ export class AudioElement {
     if (audio.src?.startsWith('blob:')) {
       this.blobUrl = audio.src;
     }
+    audio.muted = false;
     this.listenersBound = false;
     this.bindListeners();
   }

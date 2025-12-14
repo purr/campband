@@ -69,8 +69,22 @@ export class AudioGraph {
 
   /**
    * Get or create the AudioContext
+   * If an existing source node is found, reuse its context to avoid mismatches
    */
-  async getContext(): Promise<AudioContext> {
+  async getContext(audio?: HTMLAudioElement): Promise<AudioContext> {
+    // If we have an audio element, check if it already has a source node
+    // If so, reuse that node's context to avoid AudioContext mismatches
+    if (audio && !this.context) {
+      const existingSource = audioSourceNodes.get(audio);
+      if (existingSource) {
+        const existingContext = (existingSource as any).context;
+        if (existingContext && existingContext.state !== 'closed') {
+          console.log('[AudioGraph] Reusing AudioContext from existing source node');
+          this.context = existingContext;
+        }
+      }
+    }
+
     if (!this.context) {
       this.context = new AudioContext();
     }
@@ -109,22 +123,40 @@ export class AudioGraph {
   async connect(audio: HTMLAudioElement, options: AudioGraphOptions = {}): Promise<void> {
     // ALWAYS merge options first (fix for hot-reload)
     this.options = { ...this.options, ...options };
-    const ctx = await this.getContext();
+    // Pass audio element to getContext so it can reuse existing source node's context
+    const ctx = await this.getContext(audio);
 
     // Check if we already have a source for this element in this graph
     if (this.nodes.source?.mediaElement === audio) {
-      // Same audio element - just reconnect the graph and update settings
-      // Make sure EQ filters exist (they might have been cleared)
-      if (this.nodes.eqFilters.length === 0) {
-        console.log('[AudioGraph] Recreating EQ filters after reconnect');
-        this.nodes.eqFilters = this.createEqFilters(ctx);
+      // Same audio element - check if context matches
+      const sourceContext = (this.nodes.source as any).context;
+      if (sourceContext !== ctx) {
+        // Context mismatch - need to recreate everything
+        console.warn('[AudioGraph] Source node from different AudioContext, recreating graph');
+        this.disconnect();
+        // Fall through to create new nodes
+      } else {
+        // Same element, same context - just reconnect the graph and update settings
+        // Make sure EQ filters exist (they might have been cleared)
+        if (this.nodes.eqFilters.length === 0) {
+          console.log('[AudioGraph] Recreating EQ filters after reconnect');
+          this.nodes.eqFilters = this.createEqFilters(ctx);
+        }
+        // Verify all nodes belong to current context
+        if (this.nodes.gain && (this.nodes.gain as any).context !== ctx) {
+          this.nodes.gain = ctx.createGain();
+          this.nodes.gain.gain.setValueAtTime(this._pendingVolume, ctx.currentTime);
+        }
+        if (this.nodes.compressor && (this.nodes.compressor as any).context !== ctx) {
+          this.nodes.compressor = this.createCompressor(ctx);
+        }
+        this.reconnect();
+        // Reapply EQ gains with the newly merged options
+        if (this.options.eq?.gains) {
+          this.applyEqGains(this.options.eq.gains);
+        }
+        return;
       }
-      this.reconnect();
-      // Reapply EQ gains with the newly merged options
-      if (this.options.eq?.gains) {
-        this.applyEqGains(this.options.eq.gains);
-      }
-      return;
     }
 
     // Disconnect our current nodes
@@ -143,7 +175,25 @@ export class AudioGraph {
         audioSourceNodes.set(audio, sourceNode);
         console.log('[AudioGraph] Created new MediaElementSourceNode');
       } else {
-        console.log('[AudioGraph] Reusing existing MediaElementSourceNode');
+        // Check if existing source node belongs to current context
+        const existingContext = (sourceNode as any).context;
+        if (existingContext !== ctx) {
+          console.warn('[AudioGraph] Existing source node from different AudioContext, cannot reuse. Audio element may need to be recreated.');
+          // Can't create a new source node - MediaElementSourceNode can only be created once
+          // The audio element needs to be recreated or we need to use the old context
+          // For now, clear the reference and try to create new (will likely fail)
+          audioSourceNodes.delete(audio);
+          try {
+            sourceNode = ctx.createMediaElementSource(audio);
+            audioSourceNodes.set(audio, sourceNode);
+            console.log('[AudioGraph] Created new MediaElementSourceNode after clearing old one');
+          } catch (error) {
+            console.error('[AudioGraph] Cannot create MediaElementSourceNode - element already has one:', error);
+            throw new Error('Audio element already has a MediaElementSourceNode from a different AudioContext. Element must be recreated.');
+          }
+        } else {
+          console.log('[AudioGraph] Reusing existing MediaElementSourceNode');
+        }
       }
 
       this.nodes.source = sourceNode;
@@ -194,6 +244,34 @@ export class AudioGraph {
   private reconnect(): void {
     if (!this.context || !this.nodes.source || !this.nodes.gain) return;
 
+    // CRITICAL: Check if source node belongs to current context
+    // If not, we can't reconnect - source nodes can't be moved between contexts
+    const sourceContext = (this.nodes.source as any).context;
+    if (sourceContext !== this.context) {
+      console.error('[AudioGraph] Cannot reconnect: source node from different AudioContext. Call disconnect() and connect() again.');
+      // Clear the source node reference - caller needs to reconnect properly
+      this.nodes.source = null;
+      return;
+    }
+
+    // Check if processing nodes belong to current context - if not, recreate them
+    if (this.nodes.eqFilters.length > 0) {
+      const firstFilter = this.nodes.eqFilters[0];
+      if (firstFilter && (firstFilter as any).context !== this.context) {
+        console.warn('[AudioGraph] EQ filters from different context, recreating...');
+        this.nodes.eqFilters = this.createEqFilters(this.context);
+      }
+    }
+    if (this.nodes.compressor && (this.nodes.compressor as any).context !== this.context) {
+      console.warn('[AudioGraph] Compressor from different context, recreating...');
+      this.nodes.compressor = this.createCompressor(this.context);
+    }
+    if ((this.nodes.gain as any).context !== this.context) {
+      console.warn('[AudioGraph] Gain from different context, recreating...');
+      this.nodes.gain = this.context.createGain();
+      this.nodes.gain.gain.setValueAtTime(this._pendingVolume, this.context.currentTime);
+    }
+
     // Disconnect all nodes first
     this.disconnectNodes();
 
@@ -202,6 +280,11 @@ export class AudioGraph {
     // Add EQ filters if enabled
     if (this.options.eq?.enabled && this.nodes.eqFilters.length > 0) {
       for (const filter of this.nodes.eqFilters) {
+        // Double-check filter belongs to current context
+        if ((filter as any).context !== this.context) {
+          console.warn('[AudioGraph] EQ filter from different context, skipping');
+          continue;
+        }
         lastNode.connect(filter);
         lastNode = filter;
       }
@@ -209,11 +292,22 @@ export class AudioGraph {
 
     // Add compressor if volume normalization is enabled
     if (this.options.volumeNormalization && this.nodes.compressor) {
+      // Double-check compressor belongs to current context
+      if ((this.nodes.compressor as any).context !== this.context) {
+        console.warn('[AudioGraph] Compressor from different context, recreating');
+        this.nodes.compressor = this.createCompressor(this.context);
+      }
       lastNode.connect(this.nodes.compressor);
       lastNode = this.nodes.compressor;
     }
 
     // Always connect through gain node for volume control
+    // Double-check gain belongs to current context
+    if ((this.nodes.gain as any).context !== this.context) {
+      console.warn('[AudioGraph] Gain from different context, recreating');
+      this.nodes.gain = this.context.createGain();
+      this.nodes.gain.gain.setValueAtTime(this._pendingVolume, this.context.currentTime);
+    }
     lastNode.connect(this.nodes.gain);
     lastNode = this.nodes.gain;
 

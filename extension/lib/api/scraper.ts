@@ -307,8 +307,43 @@ export async function fetchArtistPageWithRedirect(artistUrl: string): Promise<Ar
     bio: (() => {
       const bioElement = doc.querySelector('#bio-text');
       if (!bioElement) return undefined;
-      // Get innerHTML to preserve structure for "more"/"less" functionality
-      return bioElement.innerHTML.trim() || undefined;
+
+      // Clone to avoid mutating the live DOM
+      const clone = bioElement.cloneNode(true) as Element;
+
+      // Unwrap peekaboo-text (hidden continuation)
+      clone.querySelectorAll('.peekaboo-text').forEach(el => {
+        const text = el.textContent || '';
+        const textNode = clone.ownerDocument?.createTextNode(text) || document.createTextNode(text);
+        el.replaceWith(textNode);
+      });
+
+      // Remove Bandcamp truncate/ellipsis/link elements
+      clone
+        .querySelectorAll('.peekaboo-link, .peekaboo-ellipsis, .bcTruncateMore, .bcTruncateEllipsis')
+        .forEach(el => el.remove());
+
+      // Remove anchor tags whose text is just "more" or "less"
+      clone.querySelectorAll('a').forEach(link => {
+        const text = link.textContent?.trim().toLowerCase();
+        if (text === 'more' || text === 'less') {
+          link.remove();
+        }
+      });
+
+      // Extract cleaned text
+      const raw = clone.textContent?.trim();
+      if (!raw) return undefined;
+
+      return raw
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\u2026\s*more\s*/gi, ' ') // ellipsis + more
+        .replace(/\s*\.\.\.\s*more\s*/gi, ' ')
+        .replace(/\s*\.\.\.\s*less\s*/gi, ' ')
+        .replace(/\s*\.\s*more\s*/gi, ' ')
+        .replace(/\s*\.\s*less\s*/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
     })(),
     links: [],
   };

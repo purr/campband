@@ -16,6 +16,7 @@ interface PlayerState {
   // Volume
   volume: number;      // 0-1
   isMuted: boolean;
+  previousVolume: number;  // Volume before muting (for restore)
 
   // Modes
   shuffle: boolean;
@@ -51,8 +52,9 @@ export const usePlayerStore = create<PlayerState>()(
       currentTime: 0,
       duration: 0,
       error: null,
-      volume: 0.8,
+      volume: 1,
       isMuted: false,
+      previousVolume: 1,  // Default to same as volume
       shuffle: false,
       repeat: 'off',
 
@@ -67,13 +69,59 @@ export const usePlayerStore = create<PlayerState>()(
       setIsBuffering: (isBuffering) => set({ isBuffering }),
       setCurrentTime: (currentTime) => set({ currentTime }),
       setDuration: (duration) => set({ duration }),
-      setVolume: (volume) => set({ volume: Math.max(0, Math.min(1, volume)) }),
-      setMuted: (muted) => set({ isMuted: muted }),
+      setVolume: (volume) => set((state) => {
+        const clampedVolume = Math.max(0, Math.min(1, volume));
+        // If user changes volume while muted, unmute them (they're adjusting volume)
+        if (state.isMuted && clampedVolume > 0) {
+          return {
+            volume: clampedVolume,
+            isMuted: false,
+            previousVolume: clampedVolume,
+          };
+        }
+        // If not muted, update previousVolume so it's saved for next mute
+        return {
+          volume: clampedVolume,
+          previousVolume: state.isMuted ? state.previousVolume : clampedVolume,
+        };
+      }),
+      setMuted: (muted) => set((state) => {
+        if (muted && !state.isMuted) {
+          // Muting: save current volume and set to 0
+          return {
+            isMuted: true,
+            previousVolume: state.volume,
+            volume: 0,
+          };
+        } else if (!muted && state.isMuted) {
+          // Unmuting: restore previous volume
+          return {
+            isMuted: false,
+            volume: state.previousVolume > 0 ? state.previousVolume : 0.5,
+          };
+        }
+        return { isMuted: muted };
+      }),
       setError: (error) => set({ error }),
       clearError: () => set({ error: null }),
 
       // Toggles
-      toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
+      toggleMute: () => set((state) => {
+        if (!state.isMuted) {
+          // Muting: save current volume and set to 0
+          return {
+            isMuted: true,
+            previousVolume: state.volume,
+            volume: 0,
+          };
+        } else {
+          // Unmuting: restore previous volume
+          return {
+            isMuted: false,
+            volume: state.previousVolume > 0 ? state.previousVolume : 0.5,
+          };
+        }
+      }),
       toggleShuffle: () => set((state) => ({ shuffle: !state.shuffle })),
       toggleRepeat: () => set((state) => {
         const modes: RepeatMode[] = ['off', 'all', 'track'];
@@ -96,6 +144,7 @@ export const usePlayerStore = create<PlayerState>()(
         duration: state.duration,
         volume: state.volume,
         isMuted: state.isMuted,
+        previousVolume: state.previousVolume,
         shuffle: state.shuffle,
         repeat: state.repeat,
         // Don't persist: isPlaying (start paused), isBuffering, error

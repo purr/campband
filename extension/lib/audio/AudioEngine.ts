@@ -298,16 +298,16 @@ class AudioEngine {
       return { success: true };
     }
 
-    this.abortController = new AbortController();
+      this.abortController = new AbortController();
 
-    // Use preloaded blob if available
-    if (this.preloadedSrc === src && this.preloadedBlob) {
-      this.primaryElement.loadFromBlob(this.preloadedBlob, src);
-      this.preloadedBlob = null;
-      this.preloadedSrc = null;
+      // Use preloaded blob if available
+      if (this.preloadedSrc === src && this.preloadedBlob) {
+        this.primaryElement.loadFromBlob(this.preloadedBlob, src);
+        this.preloadedBlob = null;
+        this.preloadedSrc = null;
       this.crossfadeTriggered = false;
       return { success: true };
-    }
+      }
 
     const result = await this.primaryElement.load(src, this.abortController.signal);
 
@@ -323,6 +323,9 @@ class AudioEngine {
    */
   async play(): Promise<void> {
     await this.ensureGraphConnected();
+    // Ensure graph volume is applied before play (fix loudness after hot reload)
+    this.primaryGraph.setVolume(this.volume);
+    this.primaryElement.get().volume = this.volume;
     await this.primaryElement.play();
   }
 
@@ -363,12 +366,12 @@ class AudioEngine {
    */
   setVolume(volume: number): void {
     this.volume = Math.max(0, Math.min(1, volume));
+    // Apply to both graphs so crossfade audio is also attenuated
     this.primaryGraph.setVolume(this.volume);
-
-    // Also update crossfade graph if not actively crossfading
-    if (!this.isCrossfading) {
-      this.crossfadeGraph.setVolume(0);
-    }
+    this.crossfadeGraph.setVolume(this.volume);
+    // Keep HTMLAudioElements in sync (fallback/direct path safety)
+    this.primaryElement.get().volume = this.volume;
+    this.crossfadeElement.get().volume = this.volume;
   }
 
   /**
@@ -689,10 +692,17 @@ class AudioEngine {
     if (bestCandidate && bestScore > 0) {
       this.primaryElement.adopt(bestCandidate);
 
-      // Reconnect to graph
+      // Reconnect to graph and reapply volume/mute after hot reload
       this.primaryGraph.connect(bestCandidate, {
         volumeNormalization: this.settings.volumeNormalization,
         eq: this.eqSettings,
+        initialVolume: this.volume,
+      }).then(() => {
+        // Force gain to current volume
+        this.primaryGraph.setVolume(this.volume);
+        // Keep element volume in sync; element is unmuted, gain controls loudness
+        bestCandidate.volume = this.volume;
+        this.primaryElement.setMuted(false);
       }).catch(console.warn);
     }
 
@@ -700,6 +710,15 @@ class AudioEngine {
     const crossfadeEl = document.getElementById('campband-audio-crossfade') as HTMLAudioElement | null;
     if (crossfadeEl) {
       this.crossfadeElement.adopt(crossfadeEl);
+      this.crossfadeGraph.connect(crossfadeEl, {
+        volumeNormalization: this.settings.volumeNormalization,
+        eq: this.eqSettings,
+        initialVolume: 0,
+      }).then(() => {
+        this.crossfadeGraph.setVolume(0);
+        crossfadeEl.volume = this.volume;
+        this.crossfadeElement.setMuted(false);
+      }).catch(console.warn);
     }
   }
 

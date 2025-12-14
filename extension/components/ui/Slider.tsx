@@ -47,11 +47,6 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
           {...props}
         />
 
-        {/* Visible thumb on hover - glass style */}
-        <div
-          className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-text rounded-full opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md"
-          style={{ left: `calc(${percentage}% - 7px)` }}
-        />
       </div>
     );
   }

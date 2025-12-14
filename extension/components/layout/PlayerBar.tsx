@@ -39,11 +39,14 @@ interface VolumeControlProps {
 
 function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: VolumeControlProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const [popupPosition, setPopupPosition] = useState({ bottom: 0, right: 0 });
   const displayVolume = isMuted ? 0 : Math.round(volume * 100);
+  const volumeUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get volume icon based on level
   const VolumeIcon = isMuted || volume === 0
@@ -55,13 +58,37 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
   // Update popup position when opened
   useEffect(() => {
     if (isOpen && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      setPopupPosition({
-        bottom: window.innerHeight - rect.top + 8,
-        right: window.innerWidth - rect.right,
-      });
+      const updatePosition = () => {
+        if (buttonRef.current) {
+          const rect = buttonRef.current.getBoundingClientRect();
+          setPopupPosition({
+            bottom: window.innerHeight - rect.top + 12, // More spacing to avoid covering button
+            right: window.innerWidth - rect.right,
+          });
+        }
+      };
+      updatePosition();
+      // Update on scroll/resize
+      window.addEventListener('scroll', updatePosition, true);
+      window.addEventListener('resize', updatePosition);
+      return () => {
+        window.removeEventListener('scroll', updatePosition, true);
+        window.removeEventListener('resize', updatePosition);
+      };
     }
   }, [isOpen]);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (volumeUpdateTimeoutRef.current) {
+        clearTimeout(volumeUpdateTimeoutRef.current);
+      }
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Close popup when clicking outside
   useEffect(() => {
@@ -82,7 +109,14 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
   }, [isOpen]);
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onVolumeChange(parseFloat(e.target.value) / 100);
+    const newVolume = parseFloat(e.target.value) / 100;
+    // Debounce volume updates to prevent lag
+    if (volumeUpdateTimeoutRef.current) {
+      clearTimeout(volumeUpdateTimeoutRef.current);
+    }
+    volumeUpdateTimeoutRef.current = setTimeout(() => {
+      onVolumeChange(newVolume);
+    }, 16); // ~60fps updates
   };
 
   // Handle scroll wheel to change volume (non-passive to allow preventDefault)
@@ -94,7 +128,13 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
     e.preventDefault();
     const delta = e.deltaY > 0 ? -5 : 5; // Scroll down = decrease, scroll up = increase
     const newVolume = Math.max(0, Math.min(100, displayVolume + delta));
-    onVolumeChange(newVolume / 100);
+    // Debounce wheel updates too
+    if (volumeUpdateTimeoutRef.current) {
+      clearTimeout(volumeUpdateTimeoutRef.current);
+    }
+    volumeUpdateTimeoutRef.current = setTimeout(() => {
+      onVolumeChange(newVolume / 100);
+    }, 16);
   };
 
     // Must use { passive: false } to allow preventDefault on wheel events
@@ -123,6 +163,7 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
           aria-label={isMuted ? 'Unmute' : 'Mute'}
           size="sm"
           onClick={onToggleMute}
+          className={isMuted ? 'text-love' : ''}
         >
           <VolumeIcon size={18} />
         </IconButton>
@@ -142,40 +183,101 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
 
       {/* Collapsed view - shown on narrower screens */}
       <div className="lg:hidden">
-        <button
-          ref={buttonRef}
-          onClick={() => setIsOpen(!isOpen)}
-          className={cn(
-            'flex items-center justify-center',
-            'w-9 h-9 rounded-full',
-            'text-text/70 hover:text-text',
-            'hover:bg-white/10',
-            'transition-all duration-200',
-            isOpen && 'bg-white/10 text-text'
-          )}
+        <div
+          ref={containerRef}
+          onMouseEnter={() => {
+            // Clear any pending close
+            if (hoverTimeoutRef.current) {
+              clearTimeout(hoverTimeoutRef.current);
+            }
+            // Delay showing popup by 300ms
+            hoverTimeoutRef.current = setTimeout(() => {
+              setIsOpen(true);
+              // Small delay to ensure DOM is ready, then trigger animation
+              requestAnimationFrame(() => {
+                setIsVisible(true);
+              });
+            }, 300);
+          }}
+          onMouseLeave={() => {
+            // Clear pending open
+            if (hoverTimeoutRef.current) {
+              clearTimeout(hoverTimeoutRef.current);
+            }
+            // Start exit animation
+            setIsVisible(false);
+            // Keep in DOM during animation, then remove (500ms)
+            hoverTimeoutRef.current = setTimeout(() => {
+              setIsOpen(false);
+            }, 500);
+          }}
+          className="relative"
         >
-          <VolumeIcon size={18} />
-        </button>
+          <button
+            ref={buttonRef}
+            onClick={onToggleMute}
+            className={cn(
+              'flex items-center justify-center',
+              'w-9 h-9 rounded-full',
+              'text-text/70 hover:text-text',
+              'hover:bg-white/10',
+              'transition-all duration-200',
+              isMuted && 'text-love'
+            )}
+          >
+            <VolumeIcon size={18} />
+          </button>
 
         {/* Popup - rendered via portal to escape backdrop-filter nesting */}
         {isOpen && createPortal(
           <div
             ref={popupRef}
+            onMouseEnter={() => {
+              // Clear any pending close
+              if (hoverTimeoutRef.current) {
+                clearTimeout(hoverTimeoutRef.current);
+              }
+              // Ensure it's visible when hovering the popup
+              if (!isVisible) {
+                setIsVisible(true);
+              }
+            }}
+            onMouseLeave={() => {
+              // Clear any pending operations
+              if (hoverTimeoutRef.current) {
+                clearTimeout(hoverTimeoutRef.current);
+              }
+              // Delay hiding by 0.5s
+              hoverTimeoutRef.current = setTimeout(() => {
+                // Start exit animation
+                setIsVisible(false);
+                // Keep in DOM during animation, then remove (500ms)
+                hoverTimeoutRef.current = setTimeout(() => {
+                  setIsOpen(false);
+                }, 500);
+              }, 500);
+            }}
             className={cn(
               'fixed z-[9999]',
               'px-3 py-4 rounded-2xl',
+              'w-12',
               'liquid-glass-glow',
-              'animate-in fade-in slide-in-from-bottom-2 duration-150'
+              'transition-all duration-500 ease-out',
+              isVisible
+                ? 'opacity-100 translate-y-0'
+                : 'opacity-0 translate-y-2 pointer-events-none'
             )}
             style={{
               bottom: popupPosition.bottom,
               right: popupPosition.right,
+              // Add margin to prevent covering the button
+              marginBottom: '4px',
             }}
           >
             {/* Vertical slider with volume display */}
             <div className="flex flex-col items-center gap-2">
               {/* Volume percentage */}
-              <span className="text-xs font-medium text-text/80 tabular-nums">
+              <span className="text-xs font-medium text-text/80 tabular-nums w-full text-center">
                 {displayVolume}%
               </span>
 
@@ -201,23 +303,11 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
                 />
               </div>
 
-              {/* Mute button */}
-              <button
-                onClick={onToggleMute}
-                className={cn(
-                  'p-1.5 rounded-full',
-                  'transition-all duration-200',
-                  isMuted
-                    ? 'text-love'
-                    : 'text-text/60 hover:text-text'
-                )}
-              >
-                <VolumeIcon size={16} />
-              </button>
             </div>
           </div>,
           document.body
         )}
+        </div>
       </div>
     </div>
   );

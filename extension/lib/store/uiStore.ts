@@ -129,7 +129,7 @@ export const useUIStore = create<UIState>()(
     {
       name: 'campband-ui',
       partialize: (state) => ({
-        sidebarCollapsed: state.sidebarCollapsed,
+        // sidebarCollapsed not persisted - always defaults to uncollapsed
         viewMode: state.viewMode,
         sortBy: state.sortBy,
         filterType: state.filterType,

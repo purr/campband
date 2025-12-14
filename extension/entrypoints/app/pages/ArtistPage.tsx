@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Grid3X3, List } from 'lucide-react';
-import { cn, shuffleTracks } from '@/lib/utils';
+import { Grid3X3, List, ChevronDown, ChevronUp } from 'lucide-react';
+import { cn, linkifyText, shuffleTracks } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
-import { ArtistHeader, ArtistHeaderSkeleton, ReleaseGrid, ReleaseGridSkeleton, ArtistBio } from '@/components/artist';
+import { ArtistHeader, ArtistHeaderSkeleton, ReleaseGrid, ReleaseGridSkeleton } from '@/components/artist';
 import { useRouterStore, useArtistStore, useQueueStore, usePlayerStore, useUIStore } from '@/lib/store';
 import type { DiscographyItem } from '@/types';
 
@@ -24,6 +24,7 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
   const { play } = usePlayerStore();
   const { setQueuePanelOpen, artistDiscographyViewMode, setArtistDiscographyViewMode } = useUIStore();
   const [isLoadingAll, setIsLoadingAll] = useState(false);
+  const [bioExpanded, setBioExpanded] = useState(false);
 
   // Load artist on mount (uses cache if available)
   useEffect(() => {
@@ -125,12 +126,65 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
       )}
 
       {/* Bio */}
-      {currentArtist?.band.bio && (
-        <div className="px-8 py-6">
-          <h3 className="text-lg font-semibold text-text mb-3">About</h3>
-          <ArtistBio bioHtml={currentArtist.band.bio} />
-        </div>
-      )}
+      {currentArtist?.band.bio && (() => {
+        // Clean bio text - remove Bandcamp's "...more" and "...less" patterns
+        const cleanBio = currentArtist.band.bio
+          // Strip any HTML tags as a fallback safety (should be plain text already)
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/\u2026\s*more\s*/gi, ' ')
+          .replace(/\s*\.\.\.\s*more\s*/gi, ' ')
+          .replace(/\s*\.\.\.\s*less\s*/gi, ' ')
+          .replace(/\s*\.\s*more\s*/gi, ' ')
+          .replace(/\s*\.\s*less\s*/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        // Require enough overflow (≈ two lines) before showing "Show more"
+        const SHOW_MORE_THRESHOLD = 520; // heuristic to avoid hiding just one line
+        const hasLongBio = cleanBio.length > SHOW_MORE_THRESHOLD;
+
+        return (
+          <div className="px-8 py-6">
+            <h3 className="text-lg font-semibold text-text mb-3">About</h3>
+            <div className={cn(
+              'relative',
+              !bioExpanded && hasLongBio && 'max-h-32 overflow-hidden'
+            )}>
+              <p className="text-subtle leading-relaxed max-w-3xl whitespace-pre-line">
+                {linkifyText(cleanBio)}
+              </p>
+
+              {/* Gradient fade */}
+              {!bioExpanded && hasLongBio && (
+                <div className="absolute bottom-0 left-0 right-0 h-16 bg-linear-to-t from-base to-transparent" />
+              )}
+            </div>
+
+            {/* Show more/less button */}
+            {hasLongBio && (
+              <button
+                onClick={() => setBioExpanded(!bioExpanded)}
+                className={cn(
+                  'flex items-center gap-1 mt-2',
+                  'text-sm text-pine hover:text-text',
+                  'transition-colors'
+                )}
+              >
+                {bioExpanded ? (
+                  <>
+                    Show less <ChevronUp size={16} />
+                  </>
+                ) : (
+                  <>
+                    Show more <ChevronDown size={16} />
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Releases */}
       <div className="px-8 py-6">
