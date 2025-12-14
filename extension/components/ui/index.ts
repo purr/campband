@@ -9,7 +9,7 @@ export { ClickableText } from './ClickableText';
 export { TrackRow } from './TrackRow';
 export { ImageBackdrop } from './ImageBackdrop';
 export { BaseModal, ModalButton, ModalButtonGroup, type BaseModalProps, type BaseModalRef } from './BaseModal';
-export { PlaylistModal, CreatePlaylistModal } from './PlaylistModal';
+export { PlaylistModal } from './PlaylistModal';
 export { ConfirmProvider, useConfirm, useUnlikeConfirm } from './ConfirmProvider';
 export { Dropdown, type DropdownOption } from './Dropdown';
 // Unified context menu system - handles tracks, albums, artists, playlists

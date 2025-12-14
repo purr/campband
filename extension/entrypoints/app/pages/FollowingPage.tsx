@@ -23,12 +23,18 @@ export function FollowingPage() {
     init,
     removeFavoriteArtist,
   } = useLibraryStore();
-  const { navigate } = useRouterStore();
+  const { navigate, setPageTitle } = useRouterStore();
   const { followingViewMode, setFollowingViewMode } = useUIStore();
   const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);
   const { confirmUnfollowArtist } = useUnlikeConfirm();
   const [sortBy, setSortBy] = useState<SortOption>('recent');
   const { openArtistMenu } = useContextMenu();
+
+  // Set page title
+  useEffect(() => {
+    setPageTitle('Following');
+    return () => setPageTitle(null);
+  }, [setPageTitle]);
 
   const handleUnfollow = async (artistId: number) => {
     const artist = favoriteArtists.find(a => a.id === artistId);

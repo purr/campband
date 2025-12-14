@@ -61,10 +61,6 @@ interface UIState {
   openEditPlaylistModal: (playlist: EditingPlaylist) => void;
   closePlaylistModal: () => void;
 
-  // Legacy alias
-  createPlaylistModalOpen: boolean;
-  closeCreatePlaylistModal: () => void;
-
   // View mode preferences per section
   likedAlbumsViewMode: ViewMode;
   setLikedAlbumsViewMode: (mode: ViewMode) => void;
@@ -117,14 +113,6 @@ export const useUIStore = create<UIState>()(
         pendingTrackForPlaylist: null,
       }),
       closePlaylistModal: () => set({
-        playlistModalOpen: false,
-        pendingTrackForPlaylist: null,
-        editingPlaylist: null,
-      }),
-
-      // Legacy alias (points to same state)
-      createPlaylistModalOpen: false,
-      closeCreatePlaylistModal: () => set({
         playlistModalOpen: false,
         pendingTrackForPlaylist: null,
         editingPlaylist: null,

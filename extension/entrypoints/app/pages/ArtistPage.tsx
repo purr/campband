@@ -11,7 +11,7 @@ interface ArtistPageProps {
 }
 
 export function ArtistPage({ artistUrl }: ArtistPageProps) {
-  const { navigate } = useRouterStore();
+  const { navigate, setPageTitle } = useRouterStore();
   const {
     currentArtist,
     isLoading,
@@ -29,6 +29,14 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
   useEffect(() => {
     loadArtist(artistUrl);
   }, [artistUrl, loadArtist]);
+
+  // Set page title when artist loads
+  useEffect(() => {
+    if (currentArtist?.band?.name) {
+      setPageTitle(currentArtist.band.name);
+    }
+    return () => setPageTitle(null);
+  }, [currentArtist?.band?.name, setPageTitle]);
 
   const handleReleaseClick = (release: DiscographyItem) => {
     navigate({ name: 'album', url: release.url });

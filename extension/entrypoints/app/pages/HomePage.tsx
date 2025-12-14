@@ -1,12 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui';
 import { useRouterStore, useSearchStore } from '@/lib/store';
 
 export function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const { navigate } = useRouterStore();
+  const { navigate, setPageTitle } = useRouterStore();
   const { setQuery } = useSearchStore();
+
+  // Set page title
+  useEffect(() => {
+    setPageTitle('Home');
+    return () => setPageTitle(null);
+  }, [setPageTitle]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();

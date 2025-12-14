@@ -6,9 +6,6 @@ import { NavigationButtons } from './NavigationButtons';
 import { LAYOUT_CLASSES } from '@/lib/constants/layout';
 import { useRouterStore, useSearchStore } from '@/lib/store';
 
-// Re-export for backwards compatibility
-export const PAGE_HEADER_HEIGHT = LAYOUT_CLASSES.BAR_HEIGHT;
-
 interface PageHeaderProps {
   /** Right section: Controls like sort, view toggle, etc */
   right?: React.ReactNode;

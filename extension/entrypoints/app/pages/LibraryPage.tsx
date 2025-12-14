@@ -25,6 +25,7 @@ const historyGroupOptions: { value: HistoryGrouping; label: string }[] = [
 
 export function LibraryPage() {
   const [activeTab, setActiveTab] = useState<LibraryTab>('artists');
+  const { navigate, setPageTitle } = useRouterStore();
   const {
     favoriteArtists,
     favoriteAlbums,
@@ -53,7 +54,12 @@ export function LibraryPage() {
     getGroupedHistory,
     getTrackPlayCount,
   } = useLibraryStore();
-  const { navigate } = useRouterStore();
+
+  // Set page title
+  useEffect(() => {
+    setPageTitle('Library');
+    return () => setPageTitle(null);
+  }, [setPageTitle]);
   const { setQueue, addToQueue } = useQueueStore();
   const { play } = usePlayerStore();
   const confirmOnUnlike = useSettingsStore((state) => state.app.confirmOnUnlike);

@@ -13,7 +13,7 @@ interface PlaylistPageProps {
 
 export function PlaylistPage({ playlistId }: PlaylistPageProps) {
   const { getPlaylistWithTracks, deletePlaylist, playlists } = usePlaylistStore();
-  const { navigate } = useRouterStore();
+  const { navigate, setPageTitle } = useRouterStore();
   const { setQueue, addToQueue } = useQueueStore();
   const { play, currentTrack, isPlaying } = usePlayerStore();
   const { openEditPlaylistModal, playlistModalOpen } = useUIStore();
@@ -23,6 +23,14 @@ export function PlaylistPage({ playlistId }: PlaylistPageProps) {
   const [tracks, setTracks] = useState<FavoriteTrack[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadedPlaylistId, setLoadedPlaylistId] = useState<number | null>(null);
+
+  // Set page title when playlist loads
+  useEffect(() => {
+    if (playlist?.name) {
+      setPageTitle(playlist.name);
+    }
+    return () => setPageTitle(null);
+  }, [playlist?.name, setPageTitle]);
 
   // Load playlist data
   const loadPlaylist = async () => {

@@ -16,6 +16,7 @@ interface AlbumState {
   clearAlbum: () => void;
   getCachedAlbum: (url: string) => Album | undefined;
   getAlbumWithCache: (url: string) => Promise<Album>;
+  updateCachedAlbum: (album: Album) => void;
   clearCache: () => void;
 }
 
@@ -163,6 +164,40 @@ export const useAlbumStore = create<AlbumState>((set, get) => ({
     );
 
     return album;
+  },
+
+  updateCachedAlbum: (album) => {
+    if (!album.url) return;
+
+    const normalizedUrl = album.url.replace(/\/?$/, '');
+    const now = Date.now();
+
+    console.log('[AlbumStore] Updating cache with fresh album data:', normalizedUrl);
+
+    // Update memory cache
+    set((state) => {
+      const newCache = new Map(state.cache);
+      newCache.set(normalizedUrl, album);
+
+      // Also update currentAlbum if it's the same album
+      const shouldUpdateCurrent = state.currentAlbum?.url?.replace(/\/?$/, '') === normalizedUrl;
+
+      return {
+        cache: newCache,
+        currentAlbum: shouldUpdateCurrent ? album : state.currentAlbum,
+      };
+    });
+
+    // Update IndexedDB cache
+    const cacheEntry: CachedAlbum = {
+      id: album.id,
+      url: normalizedUrl,
+      data: JSON.stringify(album),
+      cachedAt: now,
+    };
+    db.cachedAlbums.put(cacheEntry).catch(e =>
+      console.warn('[AlbumStore] Failed to update cache in IndexedDB:', e)
+    );
   },
 
   clearCache: () => {

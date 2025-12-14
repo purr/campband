@@ -3,7 +3,7 @@ import { Music } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 import { CollectionHeader, PlaylistTrackList, LikedCover, type PlaylistTrackItem } from '@/components/shared';
 import { EmptyState } from '@/components/ui';
-import { useLibraryStore, useQueueStore, usePlayerStore } from '@/lib/store';
+import { useLibraryStore, useQueueStore, usePlayerStore, useRouterStore } from '@/lib/store';
 import { toPlayableTrack, toPlayableTracks, shuffleTracks } from '@/lib/utils';
 
 export function LikedPage() {
@@ -14,10 +14,17 @@ export function LikedPage() {
   } = useLibraryStore();
   const { setQueue, addToQueue } = useQueueStore();
   const { play, currentTrack, isPlaying } = usePlayerStore();
+  const { setPageTitle } = useRouterStore();
 
   useEffect(() => {
     init();
   }, [init]);
+
+  // Set page title
+  useEffect(() => {
+    setPageTitle('Liked Songs');
+    return () => setPageTitle(null);
+  }, [setPageTitle]);
 
   const handleTrackPlay = (track: PlaylistTrackItem, index: number) => {
     if (!track.streamUrl) return;

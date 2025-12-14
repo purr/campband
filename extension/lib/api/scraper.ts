@@ -19,6 +19,18 @@ import { extractArtIdFromUrl, extractImageIdFromUrl, buildArtUrl, ImageSizes } f
 import { fetchHtml, fetchHtmlWithRedirect, buildMusicUrl } from './request';
 
 // ============================================
+// Constants & Helpers
+// ============================================
+
+const DELAYS = {
+  betweenRequests: 300,  // ms between fetching releases
+};
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ============================================
 // HTML Parsing
 // ============================================
 
@@ -704,5 +716,52 @@ export async function fetchArtistWithReleases(
   }
 
   return { artist, releases };
+}
+
+// ============================================
+// Stream URL Refresh
+// ============================================
+
+/**
+ * Refresh a track's stream URL by re-fetching the album/track page.
+ * Used when a cached stream URL has expired (410 Gone).
+ * Also updates the cache with fresh album data.
+ *
+ * @param track - Track with albumUrl to re-fetch
+ * @param updateCache - Optional callback to update cache with fresh album data
+ * @returns Fresh stream URL or null if not found
+ */
+export async function refreshStreamUrl(
+  track: { id: number; albumUrl?: string },
+  updateCache?: (album: Album) => void
+): Promise<string | null> {
+  if (!track.albumUrl) {
+    console.error('[Scraper] Cannot refresh stream URL: no albumUrl');
+    return null;
+  }
+
+  try {
+    console.log('[Scraper] Refreshing stream URL for track', track.id, 'from', track.albumUrl);
+    const album = await fetchReleasePage(track.albumUrl);
+
+    // Update cache with fresh album data (includes fresh stream URLs for all tracks)
+    if (updateCache) {
+      updateCache(album);
+    }
+
+    // Find the track by ID
+    const freshTrack = album.tracks?.find(t => t.id === track.id || t.trackId === track.id);
+
+    if (freshTrack?.streamUrl) {
+      console.log('[Scraper] Got fresh stream URL for track', track.id);
+      return freshTrack.streamUrl;
+    }
+
+    console.warn('[Scraper] Track not found in refreshed album data:', track.id);
+    return null;
+  } catch (error) {
+    console.error('[Scraper] Failed to refresh stream URL:', error);
+    return null;
+  }
 }
 

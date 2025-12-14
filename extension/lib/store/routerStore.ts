@@ -35,6 +35,10 @@ interface RouterState {
   previousRoute: Route | null;
   isInitialized: boolean;
 
+  // Page title (shown when no music is playing)
+  pageTitle: string | null;
+  setPageTitle: (title: string | null) => void;
+
   // Navigation
   navigate: (route: Route, options?: { replace?: boolean }) => void;
 
@@ -51,6 +55,9 @@ export const useRouterStore = create<RouterState>()((set, get) => ({
   currentRoute: { name: 'home' },
   previousRoute: null,
   isInitialized: false,
+  pageTitle: null,
+
+  setPageTitle: (title) => set({ pageTitle: title }),
 
   navigate: (route, options) => {
     const { currentRoute } = get();

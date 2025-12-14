@@ -263,18 +263,19 @@ class AudioEngine {
    * Load a track
    * @param src - Stream URL
    * @param force - If true, always load. If false, skip if audio is already playing.
+   * @returns Object with success status and whether stream URL expired (410)
    */
-  async load(src: string, force = false): Promise<void> {
+  async load(src: string, force = false): Promise<{ success: boolean; expired?: boolean; error?: string }> {
     // Don't interrupt playing audio unless forced
     if (!force && this.primaryElement.isPlaying()) {
-      return;
+      return { success: true }; // Already playing, consider it success
     }
 
     // Handle loading during crossfade
     if (this.isCrossfading) {
       console.log('[AudioEngine] Load during crossfade - completing swap');
       this.completeCrossfadeSwap();
-      return;
+      return { success: true };
     }
 
     // Abort any pending fetch
@@ -289,33 +290,32 @@ class AudioEngine {
     this.primaryElement.pause();
 
     if (!src || !src.startsWith('http')) {
-      return;
+      return { success: false, error: 'Invalid source' };
     }
 
     // Skip if same source
     if (this.primaryElement.getCurrentSrc() === src) {
-      return;
+      return { success: true };
     }
 
-    try {
-      this.abortController = new AbortController();
+    this.abortController = new AbortController();
 
-      // Use preloaded blob if available
-      if (this.preloadedSrc === src && this.preloadedBlob) {
-        this.primaryElement.loadFromBlob(this.preloadedBlob, src);
-        this.preloadedBlob = null;
-        this.preloadedSrc = null;
-      } else {
-        await this.primaryElement.load(src, this.abortController.signal);
-      }
-
+    // Use preloaded blob if available
+    if (this.preloadedSrc === src && this.preloadedBlob) {
+      this.primaryElement.loadFromBlob(this.preloadedBlob, src);
+      this.preloadedBlob = null;
+      this.preloadedSrc = null;
       this.crossfadeTriggered = false;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return;
-      }
-      throw error;
+      return { success: true };
     }
+
+    const result = await this.primaryElement.load(src, this.abortController.signal);
+
+    if (result.success) {
+      this.crossfadeTriggered = false;
+    }
+
+    return result;
   }
 
   /**

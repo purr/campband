@@ -9,9 +9,15 @@ interface SearchPageProps {
 }
 
 export function SearchPage({ initialQuery }: SearchPageProps) {
-  const { navigate } = useRouterStore();
+  const { navigate, setPageTitle } = useRouterStore();
   const { search, setQuery } = useSearchStore();
   const searchedRef = useRef(false);
+
+  // Set page title
+  useEffect(() => {
+    setPageTitle(initialQuery ? `Search: ${initialQuery}` : 'Search');
+    return () => setPageTitle(null);
+  }, [initialQuery, setPageTitle]);
 
   // Search on mount if we have an initial query
   useEffect(() => {

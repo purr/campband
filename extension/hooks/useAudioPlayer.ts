@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { audioEngine } from '@/lib/audio';
-import { usePlayerStore, useQueueStore, useLibraryStore, useSettingsStore } from '@/lib/store';
+import { usePlayerStore, useQueueStore, useLibraryStore, useSettingsStore, useAlbumStore, useRouterStore } from '@/lib/store';
+import { refreshStreamUrl } from '@/lib/api';
 import { buildArtUrl, ImageSizes } from '@/types';
 import { getDisplayTitle } from '@/lib/utils';
 
@@ -261,6 +262,13 @@ export function useAudioPlayer() {
   const lastLoadedTrackId = useRef<number | null>(null);
   // Track if this is the first load after mount (for restoring position)
   const isFirstLoad = useRef(true);
+  // Track failed load attempts to prevent infinite loops
+  const failedLoadAttempts = useRef<Map<number, number>>(new Map());
+  // Track if we're currently refreshing a stream URL
+  const isRefreshingStreamUrl = useRef(false);
+
+  // Get cache update function
+  const updateCachedAlbum = useAlbumStore((state) => state.updateCachedAlbum);
 
   // Load when current track changes
   useEffect(() => {
@@ -269,13 +277,28 @@ export function useAudioPlayer() {
       return;
     }
 
+    // Prevent infinite loops - max 2 attempts per track (original + 1 refresh)
+    const attempts = failedLoadAttempts.current.get(currentTrack.id) || 0;
+    if (attempts >= 2) {
+      console.error('[useAudioPlayer] Max load attempts reached for track:', currentTrack.id);
+      setError('Stream unavailable - try refreshing the page');
+      setIsPlaying(false);
+      return;
+    }
+
     // Check if this is a NEW track (user changed it) or same track (hot reload/restore)
     const isNewTrack = lastLoadedTrackId.current !== null && lastLoadedTrackId.current !== currentTrack.id;
+
+    // Reset failed attempts when switching to a new track
+    if (isNewTrack) {
+      failedLoadAttempts.current.delete(lastLoadedTrackId.current || 0);
+    }
+
     lastLoadedTrackId.current = currentTrack.id;
 
     // For new tracks, force load (user intentionally changed)
     // For same track (hot reload), don't force - let AudioEngine decide
-      shouldAutoPlay.current = isPlaying;
+    shouldAutoPlay.current = isPlaying;
 
     // If this is the first load and we have a saved position, restore it
     if (isFirstLoad.current && currentTime > 0) {
@@ -285,22 +308,81 @@ export function useAudioPlayer() {
       shouldRestorePosition.current = null;
     }
 
-    audioEngine.load(currentTrack.streamUrl, isNewTrack);
+    // Async load with stream URL refresh on 410
+    const loadTrack = async () => {
+      const result = await audioEngine.load(currentTrack.streamUrl!, isNewTrack);
 
-      // Add to history
-      if (currentTrack.id !== lastHistoryTrackId.current) {
-        lastHistoryTrackId.current = currentTrack.id;
-        addToHistory({
-          type: 'track',
-          itemId: currentTrack.id,
-          title: currentTrack.title,
-          artist: currentTrack.artist || currentTrack.bandName,
-          artId: currentTrack.artId,
-          albumUrl: currentTrack.albumUrl,
-          bandUrl: currentTrack.bandUrl,
-        });
+      if (!result.success) {
+        // Handle expired stream URL (410 Gone)
+        if (result.expired && currentTrack.albumUrl && !isRefreshingStreamUrl.current) {
+          console.log('[useAudioPlayer] Stream URL expired, refreshing...');
+          isRefreshingStreamUrl.current = true;
+          setIsBuffering(true);
+
+          try {
+            const freshUrl = await refreshStreamUrl(
+              { id: currentTrack.id, albumUrl: currentTrack.albumUrl },
+              updateCachedAlbum
+            );
+
+            if (freshUrl) {
+              // Update the track in the queue with fresh URL
+              const queueState = useQueueStore.getState();
+              const updatedQueue = queueState.queue.map(t =>
+                t.id === currentTrack.id ? { ...t, streamUrl: freshUrl } : t
+              );
+              useQueueStore.setState({ queue: updatedQueue });
+
+              // Update current track in player store
+              usePlayerStore.setState({
+                currentTrack: { ...currentTrack, streamUrl: freshUrl }
+              });
+
+              // Track the refresh attempt
+              failedLoadAttempts.current.set(currentTrack.id, attempts + 1);
+
+              console.log('[useAudioPlayer] Retrying with fresh stream URL');
+              // The state update will trigger this effect again with the fresh URL
+            } else {
+              failedLoadAttempts.current.set(currentTrack.id, 2); // Max out attempts
+              setError('Could not refresh stream URL');
+              setIsPlaying(false);
+              setIsBuffering(false);
+            }
+          } catch (err) {
+            console.error('[useAudioPlayer] Failed to refresh stream URL:', err);
+            failedLoadAttempts.current.set(currentTrack.id, 2);
+            setError('Failed to refresh stream');
+            setIsPlaying(false);
+            setIsBuffering(false);
+          } finally {
+            isRefreshingStreamUrl.current = false;
+          }
+        } else if (!result.expired && result.error !== 'Aborted') {
+          // Other non-recoverable error
+          failedLoadAttempts.current.set(currentTrack.id, 2);
+          setError(result.error || 'Failed to load audio');
+          setIsPlaying(false);
+        }
+      }
+    };
+
+    loadTrack();
+
+    // Add to history
+    if (currentTrack.id !== lastHistoryTrackId.current) {
+      lastHistoryTrackId.current = currentTrack.id;
+      addToHistory({
+        type: 'track',
+        itemId: currentTrack.id,
+        title: currentTrack.title,
+        artist: currentTrack.artist || currentTrack.bandName,
+        artId: currentTrack.artId,
+        albumUrl: currentTrack.albumUrl,
+        bandUrl: currentTrack.bandUrl,
+      });
     }
-  }, [currentTrack?.id, currentTrack?.streamUrl]);
+  }, [currentTrack?.id, currentTrack?.streamUrl, updateCachedAlbum, setError, setIsPlaying, setIsBuffering]);
 
   // Preload next track for gapless/crossfade playback
   useEffect(() => {
@@ -323,18 +405,37 @@ export function useAudioPlayer() {
 
   // Handle play/pause state changes
   useEffect(() => {
-    // Skip if autoplay will handle it
+    // Skip if autoplay will handle it (onCanPlay callback will handle play)
     if (shouldAutoPlay.current) {
+      return;
+    }
+
+    // Skip if we're refreshing a stream URL
+    if (isRefreshingStreamUrl.current) {
       return;
     }
 
     // Normal play/pause handling
     if (isPlaying && currentTrack?.streamUrl && currentTrack.streamUrl.startsWith('http')) {
+      // Check if audio is actually ready to play
+      const audioState = audioEngine.getState();
+
+      // If audio isn't loaded or has no duration, don't try to play yet
+      // The onCanPlay callback will handle playback once ready
+      if (!audioState.src || audioState.duration === 0) {
+        // Audio not ready yet - let onCanPlay handle it via shouldAutoPlay
+        shouldAutoPlay.current = true;
+        return;
+      }
+
       audioEngine.play().catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') {
           return;
         }
         console.error('[useAudioPlayer] Play failed:', err);
+        // Play failed - sync UI state
+        setIsPlaying(false);
+        setError('Playback failed - click play to retry');
       });
     } else if (!isPlaying) {
       // On initial mount, use safePause to avoid stopping music during hot reload
@@ -352,7 +453,7 @@ export function useAudioPlayer() {
       }
       audioEngine.pause();
     }
-  }, [isPlaying, currentTrack?.streamUrl, setIsPlaying]);
+  }, [isPlaying, currentTrack?.streamUrl, setIsPlaying, setError]);
 
   // Handle volume changes
   useEffect(() => {
@@ -364,6 +465,9 @@ export function useAudioPlayer() {
     audioEngine.setMuted(isMuted);
   }, [isMuted]);
 
+  // Get page title for fallback when no music is playing
+  const pageTitle = useRouterStore((state) => state.pageTitle);
+
   // Media Session API - metadata + Document title
   useEffect(() => {
     // Use getDisplayTitle to compute cleaned title (artist prefix removed)
@@ -373,6 +477,9 @@ export function useAudioPlayer() {
     // Update document title for tab display and extensions like auto-stop
     if (currentTrack && displayTitle) {
       document.title = `${artist} - ${displayTitle} | CampBand`;
+    } else if (pageTitle) {
+      // Fall back to page title (artist name, album name, playlist name, etc.)
+      document.title = `${pageTitle} | CampBand`;
     } else {
       document.title = 'CampBand';
     }
@@ -396,7 +503,7 @@ export function useAudioPlayer() {
     } else {
       navigator.mediaSession.metadata = null;
     }
-  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.bandName, currentTrack?.albumTitle, currentTrack?.artId]);
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.bandName, currentTrack?.albumTitle, currentTrack?.artId, pageTitle]);
 
   // Media Session API - action handlers
   useEffect(() => {

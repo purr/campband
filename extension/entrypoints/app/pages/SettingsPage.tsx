@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Volume2,
   ChevronDown,
@@ -17,10 +17,19 @@ import {
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
 import { useSettingsStore } from '@/lib/store/settingsStore';
+import { useRouterStore } from '@/lib/store';
 import { DataManagement } from '@/components/settings/DataManagement';
 import { EQ_FREQUENCIES, EQ_PRESETS, type EqBand, type EqPresetName } from '@/lib/audio';
 
 export function SettingsPage() {
+  const { setPageTitle } = useRouterStore();
+
+  // Set page title
+  useEffect(() => {
+    setPageTitle('Settings');
+    return () => setPageTitle(null);
+  }, [setPageTitle]);
+
   return (
     <div className="min-h-full pb-8">
       <PageHeader />

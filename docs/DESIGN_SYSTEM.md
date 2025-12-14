@@ -409,11 +409,9 @@ import { createPortal } from 'react-dom';
 
 ### Components Using Portals
 - `VolumeControl` (collapsed popup)
-- `TrackContextMenu`
-- `AlbumContextMenu`
-- `ArtistContextMenu`
+- `GlobalContextMenu` (unified context menu for tracks, albums, artists, playlists)
 - `PlaylistPicker` (submenu)
-- `CreatePlaylistModal`
+- `PlaylistModal` (create/edit playlist)
 - `QueuePanel`
 
 ---
@@ -484,6 +482,4 @@ Uses `animate-equalizer` with staggered delays for organic movement.
 9. **Use `z-[9999]`** for portaled popups to stay above all content
 
 ---
-
-*Last updated: December 2024*
 

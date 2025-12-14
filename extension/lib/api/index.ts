@@ -5,6 +5,7 @@ export {
   fetchArtistReleaseList,
   fetchReleasePage,
   fetchArtistWithReleases,
+  refreshStreamUrl,
   type FetchProgress,
   type ProgressCallback,
   type ArtistPageResult,

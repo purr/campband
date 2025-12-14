@@ -117,19 +117,20 @@ export class AudioElement {
 
   /**
    * Load audio from URL (fetches as blob for CORS bypass)
+   * @returns Object with success status and error details if failed
    */
-  async load(src: string, signal?: AbortSignal): Promise<void> {
+  async load(src: string, signal?: AbortSignal): Promise<{ success: boolean; expired?: boolean; error?: string }> {
     if (!this.audio) {
       this.init();
     }
 
     if (!this.audio || !src || !src.startsWith('http')) {
-      return;
+      return { success: false, error: 'Invalid source' };
     }
 
     // Already loaded this source
     if (this.currentSrc === src) {
-      return;
+      return { success: true };
     }
 
     // Clean up old blob
@@ -141,28 +142,48 @@ export class AudioElement {
     try {
       const response = await fetch(src, { signal });
       if (!response.ok) {
-        throw new Error(`Failed to fetch audio: ${response.status}`);
+        // 410 Gone = stream URL expired
+        const expired = response.status === 410;
+        const errorMsg = expired
+          ? 'Stream URL expired'
+          : `Failed to fetch audio: ${response.status}`;
+
+        // Don't call onError for expired URLs - let caller handle refresh
+        if (!expired) {
+          this.callbacks.onError?.(errorMsg);
+        }
+
+        // Reset currentSrc so we can try again with fresh URL
+        this.currentSrc = null;
+
+        return { success: false, expired, error: errorMsg };
       }
 
       const blob = await response.blob();
       this.blobUrl = URL.createObjectURL(blob);
       this.audio.src = this.blobUrl;
       this.audio.load();
+      return { success: true };
     } catch (error) {
       // Handle abort errors silently (happens during rapid track changes)
       if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
+        return { success: false, error: 'Aborted' };
       }
       if (error instanceof Error && error.name === 'AbortError') {
-        return;
+        return { success: false, error: 'Aborted' };
       }
       // Also catch "The operation was aborted" message
       if (error instanceof Error && error.message.includes('aborted')) {
-        return;
+        return { success: false, error: 'Aborted' };
       }
       console.error('[AudioElement] Load failed:', error);
-      this.callbacks.onError?.(error instanceof Error ? error.message : 'Load failed');
-      throw error;
+      const errorMsg = error instanceof Error ? error.message : 'Load failed';
+      this.callbacks.onError?.(errorMsg);
+
+      // Reset currentSrc so we can retry
+      this.currentSrc = null;
+
+      return { success: false, error: errorMsg };
     }
   }
 

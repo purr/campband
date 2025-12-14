@@ -3,8 +3,8 @@
 ## Tech Stack
 
 - **Framework:** [WXT](https://wxt.dev/) (Web Extension Framework for Firefox)
-- **UI:** React 19 + TypeScript (strict mode)
-- **Styling:** Tailwind CSS v4 + Rosé Pine theme
+- **UI:** React + TypeScript (strict mode)
+- **Styling:** Tailwind CSS + Rosé Pine theme
 - **State:** Zustand (persisted stores)
 - **Storage:** IndexedDB via Dexie.js
 - **Icons:** Lucide React
@@ -299,8 +299,30 @@ pendingNavigation cleared
 https://t4.bcbits.com/stream/{hash}/mp3-128/{track_id}?p=0&ts={timestamp}&t={signature}&token={token}
 ```
 - URLs expire after ~24 hours
-- Must re-fetch page to get fresh URLs
 - Check `ts` parameter for expiry
+
+### Automatic Stream URL Refresh
+
+When a cached track's stream URL expires (HTTP 410 Gone), CampBand automatically:
+
+1. **Detects the 410 error** during audio load
+2. **Re-fetches the album page** to get fresh stream URLs
+3. **Updates the cache** (both memory and IndexedDB) with fresh album data
+4. **Updates the queue** with the fresh stream URL
+5. **Retries playback** automatically
+
+```typescript
+// In useAudioPlayer hook
+if (result.expired && currentTrack.albumUrl) {
+  const freshUrl = await refreshStreamUrl(
+    { id: currentTrack.id, albumUrl: currentTrack.albumUrl },
+    updateCachedAlbum  // Updates cache with fresh album data
+  );
+  // Update queue and retry...
+}
+```
+
+**Retry Protection**: Max 2 load attempts per track to prevent infinite loops.
 
 ### Image URL Format
 ```
@@ -329,9 +351,7 @@ buildBioUrl(imageId: string | number, size: number): string
 ### Rate Limiting Strategy
 ```typescript
 const DELAYS = {
-  betweenReleases: 300,  // ms between fetching releases
-  betweenSearches: 500,  // ms between search requests
-  afterError: 2000,      // ms after a failed request
+  betweenRequests: 300,  // ms between fetching releases
 };
 ```
 
@@ -428,6 +448,10 @@ interface CachedAlbum {
 clearCache()        // Clear all cached data
 getCacheStats()     // Get count of cached artists/albums
 
+// In albumStore
+updateCachedAlbum(album)  // Update cache with fresh album data (used after stream URL refresh)
+clearCache()              // Clear all album cache
+
 // In Settings page
 // Users can clear cache manually
 ```
@@ -490,11 +514,19 @@ interface SearchState {
 // uiStore - UI preferences
 interface UIState {
   sidebarCollapsed: boolean;
+  sidebarHidden: boolean; // For responsive hiding on narrow screens
   queuePanelOpen: boolean;
   playlistModalOpen: boolean;
   playlistModalMode: 'create' | 'edit';
-  pendingTrackForPlaylist: Track | null;
-  editingPlaylist: { id, name, description?, coverImage? } | null;
+  pendingTrackForPlaylist: PendingTrackForPlaylist | null;
+  editingPlaylist: EditingPlaylist | null;
+  viewMode: ViewMode; // 'grid' | 'list' | 'detailed'
+  sortBy: SortBy; // 'newest' | 'oldest' | 'name'
+  filterType: FilterType; // 'all' | 'album' | 'track'
+  // Per-section view mode preferences
+  likedAlbumsViewMode: ViewMode;
+  followingViewMode: ViewMode;
+  artistDiscographyViewMode: ViewMode;
 }
 
 // settingsStore - User settings (persisted)
@@ -526,7 +558,7 @@ interface RouterState {
   //   #/artist/subdomain/t/track-slug → Track page (/t/ = track)
   //   #/following                     → Following
   //   #/liked                         → Liked songs
-  //   #/library                       → Library
+  //   #/library                       → Library (redirects to liked)
   //   #/playlist/123                  → Playlist
   //   #/settings                      → Settings
 }
@@ -636,10 +668,7 @@ components/
 │   ├── PlayingIndicator.tsx    # Animated equalizer bars
 │   ├── EmptyState.tsx          # Empty list/grid state
 │   ├── ImageBackdrop.tsx
-│   ├── ContextMenu.tsx         # Context menu provider (legacy)
-│   ├── TrackContextMenu.tsx    # Right-click menu for tracks
-│   ├── AlbumContextMenu.tsx    # Right-click menu for albums
-│   ├── ArtistContextMenu.tsx   # Right-click menu for artists
+│   ├── GlobalContextMenu.tsx   # Unified context menu system (tracks, albums, artists, playlists)
 │   ├── PlaylistModal.tsx      # Unified create/edit playlist modal
 │   └── TrackRow.tsx            # Generic track row (library, history)
 │
@@ -1080,5 +1109,3 @@ With protections:
 7. **Web Workers** for heavy parsing (future)
 
 ---
-
-*Last updated: December 2024*

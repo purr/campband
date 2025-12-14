@@ -300,6 +300,3 @@ export function PlaylistModal() {
     </BaseModal>
   );
 }
-
-// Legacy export for backwards compatibility
-export { PlaylistModal as CreatePlaylistModal };
