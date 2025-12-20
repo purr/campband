@@ -14,6 +14,15 @@ import { AudioElement } from './AudioElement';
 import type { AudioCallbacks, AudioSettings, AudioState } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
+// Debug logging for song operations
+const DEBUG_SONGS = false;
+
+function logSong(...args: any[]) {
+  if (DEBUG_SONGS) {
+    console.log('[AudioEngine]', ...args);
+  }
+}
+
 // Re-export for convenience
 export { EQ_FREQUENCIES, EQ_PRESETS, DEFAULT_EQ_SETTINGS } from './AudioGraph';
 export type { EqSettings, EqBand, EqPresetName } from './AudioGraph';
@@ -266,14 +275,17 @@ class AudioEngine {
    * @returns Object with success status and whether stream URL expired (410)
    */
   async load(src: string, force = false): Promise<{ success: boolean; expired?: boolean; error?: string }> {
+    logSong('LOAD START', { src: src.substring(0, 50), force, currentSrc: this.primaryElement.getCurrentSrc()?.substring(0, 50), isPlaying: this.primaryElement.isPlaying() });
+
     // Don't interrupt playing audio unless forced
     if (!force && this.primaryElement.isPlaying()) {
+      logSong('LOAD SKIP - already playing');
       return { success: true }; // Already playing, consider it success
     }
 
     // Handle loading during crossfade
     if (this.isCrossfading) {
-      console.log('[AudioEngine] Load during crossfade - completing swap');
+      logSong('LOAD during crossfade - completing swap');
       this.completeCrossfadeSwap();
       return { success: true };
     }
@@ -287,14 +299,17 @@ class AudioEngine {
     this.cancelCrossfade();
 
     // Stop current playback
+    logSong('LOAD - pausing current playback');
     this.primaryElement.pause();
 
     if (!src || !src.startsWith('http')) {
+      logSong('LOAD ERROR - invalid source');
       return { success: false, error: 'Invalid source' };
     }
 
     // Skip if same source
     if (this.primaryElement.getCurrentSrc() === src) {
+      logSong('LOAD SKIP - same source');
       return { success: true };
     }
 
@@ -302,17 +317,23 @@ class AudioEngine {
 
       // Use preloaded blob if available
       if (this.preloadedSrc === src && this.preloadedBlob) {
+        logSong('LOAD - using preloaded blob');
         this.primaryElement.loadFromBlob(this.preloadedBlob, src);
         this.preloadedBlob = null;
         this.preloadedSrc = null;
       this.crossfadeTriggered = false;
+      logSong('LOAD SUCCESS - from preloaded blob');
       return { success: true };
       }
 
+    logSong('LOAD - fetching and loading audio');
     const result = await this.primaryElement.load(src, this.abortController.signal);
 
     if (result.success) {
       this.crossfadeTriggered = false;
+      logSong('LOAD SUCCESS', { src: src.substring(0, 50) });
+    } else {
+      logSong('LOAD FAILED', { error: result.error, expired: result.expired });
     }
 
     return result;
@@ -322,11 +343,26 @@ class AudioEngine {
    * Start playback
    */
   async play(): Promise<void> {
+    logSong('PLAY START');
     await this.ensureGraphConnected();
+
+    // CRITICAL: Resume AudioContext on first user gesture (play button)
+    // This is when the browser allows audio to start
+    const primaryContext = this.primaryGraph.getContextIfExists();
+    if (primaryContext && primaryContext.state === 'suspended') {
+      try {
+        await primaryContext.resume();
+        logSong('AudioContext resumed on play');
+      } catch (error) {
+        // Ignore - will resume on next attempt
+      }
+    }
+
     // Ensure graph volume is applied before play (fix loudness after hot reload)
     this.primaryGraph.setVolume(this.volume);
     this.primaryElement.get().volume = this.volume;
     await this.primaryElement.play();
+    logSong('PLAY SUCCESS');
   }
 
   /**
@@ -348,7 +384,18 @@ class AudioEngine {
    * Seek to time in seconds
    */
   seek(time: number): void {
-    this.primaryElement.seek(time);
+    // Don't seek during crossfade (would break the transition)
+    if (this.isCrossfading) {
+      logSong('SEEK IGNORED - crossfade in progress');
+      return;
+    }
+
+    const duration = this.primaryElement.getDuration();
+    const clampedTime = Math.max(0, Math.min(time, duration || 0));
+
+    logSong('SEEK', { time: clampedTime, duration, currentTime: this.primaryElement.getCurrentTime() });
+
+    this.primaryElement.seek(clampedTime);
   }
 
   /**
@@ -463,7 +510,10 @@ class AudioEngine {
    * Crossfade to next track
    */
   async crossfadeTo(nextSrc: string): Promise<void> {
+    logSong('CROSSFADE START', { nextSrc: nextSrc.substring(0, 50), currentSrc: this.primaryElement.getCurrentSrc()?.substring(0, 50) });
+
     if (this.isCrossfading) {
+      logSong('CROSSFADE - canceling existing crossfade');
       this.cancelCrossfade(false);
     }
 
@@ -472,6 +522,7 @@ class AudioEngine {
     // Connect crossfade element to its graph (start at volume 0)
     const crossfadeAudio = this.crossfadeElement.get();
     if (!this.crossfadeGraph.isConnected(crossfadeAudio)) {
+      logSong('CROSSFADE - connecting crossfade graph');
       await this.crossfadeGraph.connect(crossfadeAudio, {
         volumeNormalization: this.settings.volumeNormalization,
         eq: this.eqSettings,
@@ -484,33 +535,40 @@ class AudioEngine {
 
     this.isCrossfading = true;
     const duration = this.settings.crossfadeEnabled ? this.settings.crossfadeDuration : 0.1;
+    logSong('CROSSFADE - duration', duration);
 
     try {
       // Load next track into crossfade element
       let blob: Blob;
       if (this.preloadedSrc === nextSrc && this.preloadedBlob) {
+        logSong('CROSSFADE - using preloaded blob');
         blob = this.preloadedBlob;
         this.preloadedBlob = null;
         this.preloadedSrc = null;
       } else {
+        logSong('CROSSFADE - fetching next track');
         const response = await fetch(nextSrc);
         if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
         blob = await response.blob();
       }
 
+      logSong('CROSSFADE - loading blob into crossfade element');
       this.crossfadeElement.loadFromBlob(blob, nextSrc);
 
       // Wait for ready
+      logSong('CROSSFADE - waiting for canplay');
       await new Promise<void>((resolve, reject) => {
         const audio = this.crossfadeElement.get();
         const onCanPlay = () => {
           audio.removeEventListener('canplay', onCanPlay);
           audio.removeEventListener('error', onError);
+          logSong('CROSSFADE - canplay received');
           resolve();
         };
         const onError = () => {
           audio.removeEventListener('canplay', onCanPlay);
           audio.removeEventListener('error', onError);
+          logSong('CROSSFADE - error loading');
           reject(new Error('Load failed'));
         };
         audio.addEventListener('canplay', onCanPlay);
@@ -520,9 +578,11 @@ class AudioEngine {
       // Set initial volumes
       this.crossfadeGraph.setVolume(0);
       this.primaryGraph.setVolume(this.volume);
+      logSong('CROSSFADE - volumes set, starting playback');
 
       // Start playing crossfade track
       await this.crossfadeElement.play();
+      logSong('CROSSFADE - crossfade track playing, starting fade');
 
       // Perform crossfade
       const startVolume = this.volume;
@@ -555,6 +615,7 @@ class AudioEngine {
               clearInterval(this.crossfadeInterval);
               this.crossfadeInterval = null;
             }
+            logSong('CROSSFADE - fade complete');
             resolve();
           }
         }, stepTime);
@@ -562,10 +623,13 @@ class AudioEngine {
 
       // Complete swap if still crossfading
       if (this.isCrossfading) {
+        logSong('CROSSFADE - completing swap');
         this.completeCrossfadeSwap();
       }
 
+      logSong('CROSSFADE SUCCESS');
     } catch (error) {
+      logSong('CROSSFADE FAILED', error);
       console.error('[AudioEngine] Crossfade failed:', error);
       this.isCrossfading = false;
       this.crossfadeTriggered = false;
@@ -575,32 +639,86 @@ class AudioEngine {
 
   /**
    * Complete crossfade swap (also used when skipping during crossfade)
+   *
+   * CRITICAL: Instead of swapping the actual HTMLAudioElement objects (which breaks
+   * MediaElementSourceNode connections), we swap the variable references to the
+   * AudioElement wrappers and AudioGraphs. This keeps the same underlying audio
+   * sources connected to their graphs, preventing any pause or glitch.
+   *
+   * MOST CRITICAL: We do NOT pause the old primary until AFTER the swap is complete.
+   * This ensures the crossfade audio continues playing without ANY interruption.
    */
   private completeCrossfadeSwap(): void {
+    logSong('SWAP START');
+    const swapStartTime = performance.now();
+
     if (this.crossfadeInterval) {
       clearInterval(this.crossfadeInterval);
       this.crossfadeInterval = null;
     }
 
-    // Stop old primary
-    this.primaryElement.pause();
-    this.primaryElement.seek(0);
+    // Capture the current state before swap
+    const crossfadeWasPlaying = this.crossfadeElement.isPlaying();
+    const crossfadeAudio = this.crossfadeElement.get();
+    const crossfadeCurrentTime = crossfadeAudio.currentTime;
+    const primaryAudio = this.primaryElement.get();
+    const primaryWasPlaying = this.primaryElement.isPlaying();
 
-    // Swap elements
+    logSong('SWAP - state', {
+      crossfadeWasPlaying,
+      crossfadeCurrentTime,
+      primaryWasPlaying,
+      crossfadePaused: crossfadeAudio.paused,
+      primaryPaused: primaryAudio.paused
+    });
+
+    // CRITICAL: Swap FIRST, then stop old primary
+    // This ensures the new primary (crossfade) continues playing without ANY gap
     const tempElement = this.primaryElement;
     this.primaryElement = this.crossfadeElement;
     this.crossfadeElement = tempElement;
 
-    // Swap graphs
+    // Swap graphs (these are already connected to their respective HTMLAudioElements)
     const tempGraph = this.primaryGraph;
     this.primaryGraph = this.crossfadeGraph;
     this.crossfadeGraph = tempGraph;
 
-    // Reset volumes
+    logSong('SWAP - elements and graphs swapped');
+
+    // NOW stop old primary (which is now in crossfadeElement)
+    // But do it asynchronously to not block the swap
+    // The new primary (crossfadeAudio) should already be playing
+    requestAnimationFrame(() => {
+      this.crossfadeElement.pause();
+      this.crossfadeElement.seek(0);
+      logSong('SWAP - old primary stopped (async)');
+    });
+
+    // Reset volumes - the graphs are already connected to the correct audio elements
     this.primaryGraph.setVolume(this.volume);
     this.crossfadeGraph.setVolume(0);
 
-    // Update callbacks on new primary
+    logSong('SWAP - volumes reset', { primaryVolume: this.volume, crossfadeVolume: 0 });
+
+    // CRITICAL: Verify the new primary is still playing
+    // The audio should continue seamlessly since we kept the same HTMLAudioElement
+    if (crossfadeWasPlaying) {
+      if (crossfadeAudio.paused) {
+        logSong('SWAP WARNING - crossfade audio paused, resuming immediately');
+        crossfadeAudio.play().catch((err) => {
+          logSong('SWAP ERROR - failed to resume', err);
+          console.warn('[AudioEngine] Failed to resume after swap:', err);
+        });
+      } else {
+        logSong('SWAP - new primary is playing, no action needed');
+      }
+    }
+
+    // Clear callbacks on old primary (now crossfadeElement) to prevent spam
+    // This stops the old element from firing canplay events repeatedly
+    this.crossfadeElement.setCallbacks({});
+
+    // Update callbacks on new primary (this doesn't affect playback)
     this.primaryElement.setCallbacks({
       onPlay: () => this.callbacks.onPlay?.(),
       onPause: () => {
@@ -627,12 +745,15 @@ class AudioEngine {
     this.isCrossfading = false;
     this.crossfadeTriggered = false;
 
-    // Sync UI
-    setTimeout(() => {
+    const swapDuration = performance.now() - swapStartTime;
+    logSong('SWAP COMPLETE', { duration: `${swapDuration.toFixed(2)}ms`, crossfadeWasPlaying });
+
+    // Sync UI immediately - audio should already be playing seamlessly
+    if (crossfadeWasPlaying) {
       this.callbacks.onPlay?.();
-      this.callbacks.onDurationChange?.(this.getDuration());
-      this.callbacks.onTimeUpdate?.(this.getCurrentTime(), this.getDuration());
-    }, 10);
+    }
+    this.callbacks.onDurationChange?.(this.getDuration());
+    this.callbacks.onTimeUpdate?.(this.getCurrentTime(), this.getDuration());
   }
 
   /**

@@ -7,6 +7,14 @@ import { getDisplayTitle } from '@/lib/utils';
 
 // Enable debug logging for hot reload troubleshooting
 const DEBUG_HOT_RELOAD = false;
+// Enable debug logging for song operations
+const DEBUG_SONGS = false;
+
+function logSong(...args: any[]) {
+  if (DEBUG_SONGS) {
+    console.log('[useAudioPlayer]', ...args);
+  }
+}
 
 /**
  * Hook to connect the audio engine with Zustand stores.
@@ -34,7 +42,7 @@ export function useAudioPlayer() {
     clearError,
   } = usePlayerStore();
 
-  const { queue, currentIndex, playNext, playPrevious, playTrackAt, hasNext, advanceToNext } = useQueueStore();
+  const { queue, currentIndex, playNext, playPrevious, playTrackAt, hasNext, advanceToNext, expandQueueForLoop } = useQueueStore();
   const { addToHistory, init: initLibrary } = useLibraryStore();
   const audioSettings = useSettingsStore((state) => state.audio);
 
@@ -88,7 +96,11 @@ export function useAudioPlayer() {
   const repeatRef = useRef(repeat);
   useEffect(() => {
     repeatRef.current = repeat;
-  }, [repeat]);
+    // When loop (repeat all) is enabled, expand queue with remaining tracks
+    if (repeat === 'all') {
+      expandQueueForLoop();
+    }
+  }, [repeat, expandQueueForLoop]);
 
   // Store queue info in refs for the onEnded callback
   const queueRef = useRef({ queue, currentIndex });
@@ -147,8 +159,11 @@ export function useAudioPlayer() {
         const currentRepeat = repeatRef.current;
         const { queue: currentQueue } = queueRef.current;
 
+        logSong('TRACK ENDED', { repeat: currentRepeat, queueLength: currentQueue.length, hasNext: hasNext() });
+
         // Repeat track: restart the same track
         if (currentRepeat === 'track') {
+          logSong('REPEAT TRACK - seeking to start');
           audioEngine.seek(0);
           audioEngine.play().catch(console.error);
           return;
@@ -156,52 +171,140 @@ export function useAudioPlayer() {
 
         // Has more tracks in queue
         if (hasNext()) {
+          logSong('HAS NEXT - playing next');
           playNext();
           return;
         }
 
         // No more tracks - check repeat all
         if (currentRepeat === 'all' && currentQueue.length > 0) {
-          playTrackAt(0);
+          logSong('REPEAT ALL - playing first track', { queueLength: currentQueue.length });
+          // CRITICAL: Stop current playback and clear state before looping
+          // This ensures the old audio element doesn't interfere
+          audioEngine.stop();
+          // Reset crossfade state
+          isCrossfading.current = false;
+          // Set auto-play flag so the new track will play
+          shouldAutoPlay.current = true;
+          // Reset last loaded ID so the new track loads properly
+          lastLoadedTrackId.current = null;
+          // Small delay to ensure audio engine is fully stopped before loading new track
+          setTimeout(() => {
+            playTrackAt(0);
+          }, 100);
           return;
         }
 
         // No repeat, no more tracks - stop
+        logSong('NO MORE TRACKS - stopping');
         setIsPlaying(false);
       },
       onTimeUpdate: (time) => {
         // Don't update time during crossfade (keep showing old track's progress)
-        if (!isCrossfading.current) {
-          setCurrentTime(time);
+        if (isCrossfading.current) {
+          return;
         }
+        // Don't update time while seeking (prevents race conditions)
+        if (isSeeking.current) {
+          return;
+        }
+        // Validate this update is for the current track
+        const actualCurrentTrack = usePlayerStore.getState().currentTrack;
+        if (expectedTrackIdForUpdates.current && actualCurrentTrack?.id !== expectedTrackIdForUpdates.current) {
+          logSong('TIME UPDATE IGNORED - wrong track', {
+            expected: expectedTrackIdForUpdates.current,
+            actual: actualCurrentTrack?.id
+          });
+          return;
+        }
+        setCurrentTime(time);
       },
       onDurationChange: (dur) => {
         // Don't update duration during crossfade (keep showing old track's duration)
-        if (!isCrossfading.current) {
-          setDuration(dur);
+        if (isCrossfading.current) {
+          logSong('DURATION CHANGE SKIPPED (crossfading)');
+          return;
         }
+        // Validate this update is for the current track
+        const actualCurrentTrack = usePlayerStore.getState().currentTrack;
+        if (expectedTrackIdForUpdates.current && actualCurrentTrack?.id !== expectedTrackIdForUpdates.current) {
+          logSong('DURATION CHANGE IGNORED - wrong track', {
+            duration: dur,
+            expected: expectedTrackIdForUpdates.current,
+            actual: actualCurrentTrack?.id
+          });
+          return;
+        }
+        // Validate duration is reasonable (not NaN, not 0 for loaded track, not negative)
+        if (isNaN(dur) || dur < 0 || (dur === 0 && actualCurrentTrack && audioEngine.isPlaying())) {
+          logSong('DURATION CHANGE IGNORED - invalid duration', { duration: dur });
+          return;
+        }
+        logSong('DURATION CHANGE', { duration: dur, trackId: actualCurrentTrack?.id });
+        setDuration(dur);
       },
       onLoadStart: () => {
         setIsBuffering(true);
         clearError();
       },
       onCanPlay: () => {
+        // CRITICAL: Get current track from store (not closure) to avoid stale data
+        // The closure's currentTrack might be from when callback was set up
+        const actualCurrentTrack = usePlayerStore.getState().currentTrack;
+        const currentSrc = audioEngine.getCurrentSrc();
+        const expectedSrc = actualCurrentTrack?.streamUrl;
+
+        // Check if this is from an old element (after crossfade swap)
+        // Only ignore if sources don't match AND we have an expected source
+        // AND the currentSrc is NOT the expected source (meaning it's from old element)
+        if (expectedSrc && currentSrc && currentSrc !== expectedSrc) {
+          // This might be from an old element, but also might be the new track loading
+          // Check if the currentSrc matches any track in the queue
+          const queueState = useQueueStore.getState();
+          const isInQueue = queueState.queue.some(t => t.streamUrl === currentSrc);
+
+          if (!isInQueue) {
+            // This source is not in the queue at all - it's definitely from an old element
+            logSong('CAN PLAY IGNORED - source not in queue', {
+              currentSrc: currentSrc?.substring(0, 50),
+              expectedSrc: expectedSrc?.substring(0, 50),
+              trackId: actualCurrentTrack?.id
+            });
+            return;
+          }
+        }
+
+        logSong('CAN PLAY', { trackId: actualCurrentTrack?.id, currentSrc: currentSrc?.substring(0, 50) });
         setIsBuffering(false);
+
+        // CRITICAL: Get and set duration immediately when audio can play
+        // This fixes duration issues when clicking to play
+        // Only update if duration actually changed to reduce spam
+        const audioDuration = audioEngine.getDuration();
+        if (audioDuration > 0 && !isNaN(audioDuration) && audioDuration !== duration) {
+          logSong('SETTING DURATION from canPlay', { duration: audioDuration, oldDuration: duration });
+          setDuration(audioDuration);
+        } else if (audioDuration > 0 && !isNaN(audioDuration)) {
+          // Duration is same, skip logging to reduce spam
+        }
 
         // Restore saved position if we have one
         if (shouldRestorePosition.current !== null && shouldRestorePosition.current > 0) {
           const savedPosition = shouldRestorePosition.current;
           shouldRestorePosition.current = null;
+          logSong('RESTORING POSITION from canPlay', savedPosition);
           audioEngine.seek(savedPosition);
           setCurrentTime(savedPosition);
         }
 
         if (shouldAutoPlay.current) {
+          logSong('AUTO PLAY from canPlay');
           shouldAutoPlay.current = false;
           audioEngine.play().catch((err) => {
             if (err instanceof DOMException && err.name === 'AbortError') {
               return;
             }
+            logSong('AUTO PLAY FAILED', err);
             console.error('[useAudioPlayer] Auto-play failed:', err);
             setError('Playback failed - click play to retry');
           });
@@ -272,6 +375,10 @@ export function useAudioPlayer() {
   const failedLoadAttempts = useRef<Map<number, number>>(new Map());
   // Track if we're currently refreshing a stream URL
   const isRefreshingStreamUrl = useRef(false);
+  // Track if we're currently seeking (to prevent race conditions)
+  const isSeeking = useRef(false);
+  // Track the expected track ID for duration/time updates (to prevent stale data)
+  const expectedTrackIdForUpdates = useRef<number | null>(null);
 
   // Get cache update function
   const updateCachedAlbum = useAlbumStore((state) => state.updateCachedAlbum);
@@ -280,6 +387,30 @@ export function useAudioPlayer() {
   useEffect(() => {
     // Must have a valid stream URL (starts with http)
     if (!currentTrack?.streamUrl || !currentTrack.streamUrl.startsWith('http')) {
+      logSong('SKIP LOAD - no valid stream URL', currentTrack?.id);
+      return;
+    }
+
+    logSong('TRACK CHANGED', {
+      trackId: currentTrack.id,
+      title: currentTrack.title,
+      streamUrl: currentTrack.streamUrl.substring(0, 50),
+      isPlaying,
+      lastLoadedId: lastLoadedTrackId.current
+    });
+
+    // CRITICAL: Check if audio is already playing this source (after crossfade)
+    // If so, skip load to avoid pausing the audio
+    // BUT: Don't skip if we just stopped (loop all scenario)
+    const currentSrc = audioEngine.getCurrentSrc();
+    if (currentSrc === currentTrack.streamUrl && audioEngine.isPlaying() && !shouldAutoPlay.current) {
+      logSong('SKIP LOAD - already playing this source (crossfade completed)');
+      // Update the last loaded ID so we don't try to load again
+      lastLoadedTrackId.current = currentTrack.id;
+      // Ensure playing state is correct
+      if (isPlaying && !audioEngine.isPlaying()) {
+        audioEngine.play().catch(console.error);
+      }
       return;
     }
 
@@ -290,6 +421,7 @@ export function useAudioPlayer() {
     // Prevent infinite loops - max 2 attempts per track (original + 1 refresh)
     const attempts = failedLoadAttempts.current.get(currentTrack.id) || 0;
     if (attempts >= 2) {
+      logSong('MAX LOAD ATTEMPTS REACHED', currentTrack.id);
       console.error('[useAudioPlayer] Max load attempts reached for track:', currentTrack.id);
       setError('Stream unavailable - try refreshing the page');
       setIsPlaying(false);
@@ -299,12 +431,21 @@ export function useAudioPlayer() {
     // Check if this is a NEW track (user changed it) or same track (hot reload/restore)
     const isNewTrack = lastLoadedTrackId.current !== null && lastLoadedTrackId.current !== currentTrack.id;
 
+    logSong('TRACK LOAD DECISION', { isNewTrack, lastLoadedId: lastLoadedTrackId.current, currentId: currentTrack.id });
+
     // Reset failed attempts when switching to a new track
     if (isNewTrack) {
       failedLoadAttempts.current.delete(lastLoadedTrackId.current || 0);
+      // Reset seeking state when switching tracks
+      isSeeking.current = false;
+      // CRITICAL: Reset time to 0 when track changes
+      setCurrentTime(0);
+      setDuration(0);
     }
 
     lastLoadedTrackId.current = currentTrack.id;
+    // Set expected track ID for duration/time updates
+    expectedTrackIdForUpdates.current = currentTrack.id;
 
     // For new tracks, force load (user intentionally changed)
     // For same track (hot reload), don't force - let AudioEngine decide
@@ -312,6 +453,7 @@ export function useAudioPlayer() {
     if (isFirstLoad.current && currentTime > 0) {
       shouldRestorePosition.current = currentTime;
       isFirstLoad.current = false;
+      logSong('RESTORING POSITION', currentTime);
     } else if (isNewTrack) {
       shouldRestorePosition.current = null;
     }
@@ -320,15 +462,22 @@ export function useAudioPlayer() {
     const loadTrack = async () => {
       // Show loading state while switching tracks
       if (isNewTrack) {
+        logSong('NEW TRACK - setting buffering state');
         setIsBuffering(true);
         setIsPlaying(false); // show as loading, not playing
+        // CRITICAL: Reset time to 0 when starting to load new track
+        setCurrentTime(0);
+        setDuration(0);
       }
 
+      logSong('LOADING TRACK', { trackId: currentTrack.id, force: isNewTrack });
       const result = await audioEngine.load(currentTrack.streamUrl!, isNewTrack);
 
       if (!result.success) {
+        logSong('LOAD FAILED', { error: result.error, expired: result.expired, trackId: currentTrack.id });
         // Handle expired stream URL (410 Gone)
         if (result.expired && currentTrack.albumUrl && !isRefreshingStreamUrl.current) {
+          logSong('STREAM URL EXPIRED - refreshing');
           console.log('[useAudioPlayer] Stream URL expired, refreshing...');
           isRefreshingStreamUrl.current = true;
           setIsBuffering(true);
@@ -342,6 +491,7 @@ export function useAudioPlayer() {
             );
 
             if (freshUrl) {
+              logSong('STREAM URL REFRESHED', { trackId: currentTrack.id });
               // Update the track in the queue with fresh URL
               const queueState = useQueueStore.getState();
               const updatedQueue = queueState.queue.map(t =>
@@ -361,12 +511,14 @@ export function useAudioPlayer() {
               console.log('[useAudioPlayer] Retrying with fresh stream URL');
               // The state update will trigger this effect again with the fresh URL
             } else {
+              logSong('STREAM URL REFRESH FAILED');
               failedLoadAttempts.current.set(currentTrack.id, 2); // Max out attempts
               setError('Could not refresh stream URL');
               setIsPlaying(false);
               setIsBuffering(false);
             }
           } catch (err) {
+            logSong('STREAM URL REFRESH ERROR', err);
             console.error('[useAudioPlayer] Failed to refresh stream URL:', err);
             failedLoadAttempts.current.set(currentTrack.id, 2);
             setError('Failed to refresh stream');
@@ -377,10 +529,13 @@ export function useAudioPlayer() {
           }
         } else if (!result.expired && result.error !== 'Aborted') {
           // Other non-recoverable error
+          logSong('LOAD ERROR - non-recoverable', result.error);
           failedLoadAttempts.current.set(currentTrack.id, 2);
           setError(result.error || 'Failed to load audio');
           setIsPlaying(false);
         }
+      } else {
+        logSong('LOAD SUCCESS', { trackId: currentTrack.id });
       }
     };
 
@@ -577,8 +732,65 @@ export function useAudioPlayer() {
 
   // Seek function
   const seek = useCallback((time: number) => {
-    audioEngine.seek(time);
-    setCurrentTime(time);
+    // Validate seek time
+    const currentDuration = audioEngine.getDuration();
+    const actualCurrentTrack = usePlayerStore.getState().currentTrack;
+    const isBuffering = usePlayerStore.getState().isBuffering;
+
+    if (!actualCurrentTrack) {
+      logSong('SEEK IGNORED - no current track');
+      return;
+    }
+
+    // BLOCK seeking during loading/buffering - user requested this behavior
+    if (isBuffering || !currentDuration || currentDuration === 0 || isNaN(currentDuration)) {
+      logSong('SEEK BLOCKED - track still loading', { time, isBuffering, duration: currentDuration });
+      // Don't store the position - just ignore the seek completely
+      return;
+    }
+
+    // Clamp seek time to valid range
+    const clampedTime = Math.max(0, Math.min(time, currentDuration || 0));
+
+    logSong('SEEK', {
+      time: clampedTime,
+      duration: currentDuration,
+      trackId: actualCurrentTrack.id
+    });
+
+    // Set seeking flag to prevent race conditions
+    isSeeking.current = true;
+
+    // Store if we were playing before seek (to resume if needed)
+    const wasPlaying = audioEngine.isPlaying();
+    const shouldPlayAfterSeek = wasPlaying || usePlayerStore.getState().isPlaying;
+
+    // Perform seek
+    audioEngine.seek(clampedTime);
+    setCurrentTime(clampedTime);
+
+    // If audio was playing and got paused by seek, resume it
+    // This can happen when seeking on a loading track or during track changes
+    if (shouldPlayAfterSeek) {
+      // Small delay to let seek complete, then resume playback
+      setTimeout(() => {
+        const playerState = usePlayerStore.getState();
+        if (playerState.isPlaying && !audioEngine.isPlaying()) {
+          logSong('SEEK - resuming playback after seek');
+          audioEngine.play().catch((err) => {
+            if (err instanceof DOMException && err.name === 'AbortError') {
+              return;
+            }
+            console.error('[useAudioPlayer] Resume after seek failed:', err);
+          });
+        }
+      }, 50);
+    }
+
+    // Clear seeking flag after a short delay (allows seek to complete)
+    setTimeout(() => {
+      isSeeking.current = false;
+    }, 100);
   }, [setCurrentTime]);
 
   // Seek by percentage

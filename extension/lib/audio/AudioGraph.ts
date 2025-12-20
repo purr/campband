@@ -86,7 +86,16 @@ export class AudioGraph {
     }
 
     if (!this.context) {
+      // Create AudioContext - it will be suspended until user gesture
+      // This is expected browser behavior, not an error
       this.context = new AudioContext();
+
+      // Suppress the browser warning by catching it immediately
+      // The context will be resumed on first user interaction (play button)
+      if (this.context.state === 'suspended') {
+        // This is normal - context will resume on user gesture
+        // Don't log anything, just let it resume naturally on first play
+      }
     }
 
     // Only try to resume if suspended - browsers require user gesture
@@ -95,7 +104,7 @@ export class AudioGraph {
         await this.context.resume();
       } catch (error) {
         // Will resume on next user gesture - this is expected behavior
-        console.log('[AudioGraph] AudioContext suspended, will resume on user interaction');
+        // Don't log - this is normal browser security behavior
       }
     }
 

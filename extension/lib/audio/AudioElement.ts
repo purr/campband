@@ -22,6 +22,7 @@ export class AudioElement {
   private config: AudioElementConfig;
   private callbacks: AudioCallbacks = {};
   private listenersBound = false;
+  private eventListeners: Array<{ event: string; handler: () => void }> = [];
 
   constructor(config: Partial<AudioElementConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -81,25 +82,42 @@ export class AudioElement {
   }
 
   /**
+   * Remove all event listeners
+   */
+  private removeListeners(): void {
+    if (!this.audio || this.eventListeners.length === 0) return;
+
+    const audio = this.audio;
+    for (const { event, handler } of this.eventListeners) {
+      audio.removeEventListener(event, handler);
+    }
+    this.eventListeners = [];
+    this.listenersBound = false;
+  }
+
+  /**
    * Bind event listeners to audio element
    */
   private bindListeners(): void {
-    if (!this.audio || this.listenersBound) return;
+    if (!this.audio) return;
+
+    // Remove old listeners first
+    this.removeListeners();
 
     const audio = this.audio;
 
-    audio.addEventListener('play', () => this.callbacks.onPlay?.());
-    audio.addEventListener('pause', () => this.callbacks.onPause?.());
-    audio.addEventListener('ended', () => this.callbacks.onEnded?.());
-    audio.addEventListener('timeupdate', () => {
+    const playHandler = () => this.callbacks.onPlay?.();
+    const pauseHandler = () => this.callbacks.onPause?.();
+    const endedHandler = () => this.callbacks.onEnded?.();
+    const timeUpdateHandler = () => {
       this.callbacks.onTimeUpdate?.(audio.currentTime, audio.duration || 0);
-    });
-    audio.addEventListener('durationchange', () => {
+    };
+    const durationChangeHandler = () => {
       if (audio.duration) {
         this.callbacks.onDurationChange?.(audio.duration);
       }
-    });
-    audio.addEventListener('error', () => {
+    };
+    const errorHandler = () => {
       const error = audio.error;
       let message = 'Unknown playback error';
       if (error) {
@@ -111,9 +129,30 @@ export class AudioElement {
         }
       }
       this.callbacks.onError?.(message);
-    });
-    audio.addEventListener('loadstart', () => this.callbacks.onLoadStart?.());
-    audio.addEventListener('canplay', () => this.callbacks.onCanPlay?.());
+    };
+    const loadStartHandler = () => this.callbacks.onLoadStart?.();
+    const canPlayHandler = () => this.callbacks.onCanPlay?.();
+
+    audio.addEventListener('play', playHandler);
+    audio.addEventListener('pause', pauseHandler);
+    audio.addEventListener('ended', endedHandler);
+    audio.addEventListener('timeupdate', timeUpdateHandler);
+    audio.addEventListener('durationchange', durationChangeHandler);
+    audio.addEventListener('error', errorHandler);
+    audio.addEventListener('loadstart', loadStartHandler);
+    audio.addEventListener('canplay', canPlayHandler);
+
+    // Store listeners for later removal
+    this.eventListeners = [
+      { event: 'play', handler: playHandler },
+      { event: 'pause', handler: pauseHandler },
+      { event: 'ended', handler: endedHandler },
+      { event: 'timeupdate', handler: timeUpdateHandler },
+      { event: 'durationchange', handler: durationChangeHandler },
+      { event: 'error', handler: errorHandler },
+      { event: 'loadstart', handler: loadStartHandler },
+      { event: 'canplay', handler: canPlayHandler },
+    ];
 
     this.listenersBound = true;
   }
@@ -311,6 +350,7 @@ export class AudioElement {
    * Clean up
    */
   destroy(): void {
+    this.removeListeners();
     this.revokeBlobUrl();
     if (this.audio) {
       this.audio.pause();
@@ -320,7 +360,6 @@ export class AudioElement {
     }
     this.callbacks = {};
     this.currentSrc = null;
-    this.listenersBound = false;
   }
 }
 

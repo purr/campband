@@ -246,7 +246,7 @@ export function QueuePanel() {
                   repeat === 'track' && 'opacity-30'
                 )}>
                   <h3 className="text-[10px] font-medium text-text/60 uppercase tracking-wider mb-1.5 px-1">
-                    Next Up ({nextUp.length})
+                    Next Up ({nextUp.length}) {repeat === 'all' && <span className="text-rose">· Looping</span>}
                   </h3>
                   <div className="space-y-0.5">
                     {nextUp.map((track, idx) => {
@@ -283,7 +283,11 @@ export function QueuePanel() {
               {nextUp.length === 0 && nowPlaying && (
                 <div className="px-3 py-4 text-center">
                   <p className="text-xs text-text/60">
-                    {repeat === 'track' ? 'Looping current track' : 'No more tracks in queue'}
+                    {repeat === 'track'
+                      ? 'Looping current track'
+                      : repeat === 'all'
+                        ? 'Queue will loop'
+                        : 'No more tracks in queue'}
                   </p>
                 </div>
               )}

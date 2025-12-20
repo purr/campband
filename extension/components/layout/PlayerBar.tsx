@@ -47,6 +47,7 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
   const displayVolume = isMuted ? 0 : Math.round(volume * 100);
   const volumeUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get volume icon based on level
   const VolumeIcon = isMuted || volume === 0
@@ -86,6 +87,9 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
       }
       if (hoverTimeoutRef.current) {
         clearTimeout(hoverTimeoutRef.current);
+      }
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
       }
     };
   }, []);
@@ -190,6 +194,10 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
             if (hoverTimeoutRef.current) {
               clearTimeout(hoverTimeoutRef.current);
             }
+            // Clear any pending hide
+            if (hideTimeoutRef.current) {
+              clearTimeout(hideTimeoutRef.current);
+            }
             // Delay showing popup by 300ms
             hoverTimeoutRef.current = setTimeout(() => {
               setIsOpen(true);
@@ -204,11 +212,18 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
             if (hoverTimeoutRef.current) {
               clearTimeout(hoverTimeoutRef.current);
             }
-            // Start exit animation
-            setIsVisible(false);
-            // Keep in DOM during animation, then remove (500ms)
-            hoverTimeoutRef.current = setTimeout(() => {
-              setIsOpen(false);
+            // Clear any pending hide
+            if (hideTimeoutRef.current) {
+              clearTimeout(hideTimeoutRef.current);
+            }
+            // Wait 0.5s before starting exit animation (when collapsed/small)
+            hideTimeoutRef.current = setTimeout(() => {
+              // Start exit animation
+              setIsVisible(false);
+              // Keep in DOM during animation, then remove (500ms)
+              hideTimeoutRef.current = setTimeout(() => {
+                setIsOpen(false);
+              }, 500);
             }, 500);
           }}
           className="relative"
@@ -415,7 +430,7 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
     }
   }, [isPlaying, currentTime, duration, progressPercent]);
 
-  // Reset progress bar to 0 when track changes
+  // Reset progress bar to 0 when track changes or when buffering starts
   useEffect(() => {
     if (progressFillRef.current) {
       progressFillRef.current.style.width = '0%';
@@ -423,7 +438,7 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
     if (timeDisplayRef.current) {
       timeDisplayRef.current.textContent = `${formatTime(0)} / ${formatTime(duration)}`;
     }
-  }, [currentTrack?.id]);
+  }, [currentTrack?.id, isBuffering]);
 
   const isTrackFavorite = currentTrack ? isFavoriteTrack(currentTrack.id) : false;
 
@@ -471,7 +486,8 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
   };
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!currentTrack || !duration) return;
+    // Disable seeking during loading/buffering or when duration is not available
+    if (!currentTrack || !duration || duration === 0 || isBuffering) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = (e.clientX - rect.left) / rect.width;
     const newTime = percent * duration;
@@ -483,10 +499,14 @@ export function PlayerBar({ onSeek }: PlayerBarProps) {
       {/* Progress bar - full width at top, grows on hover */}
       <div
         className={cn(
-          'absolute top-0 left-0 right-0 cursor-pointer',
+          'absolute top-0 left-0 right-0',
           'h-1.5 hover:h-2.5 hover:-mt-1',
           'bg-white/10',
-          'transition-all duration-200 ease-out'
+          'transition-all duration-200 ease-out',
+          // Disable interaction during loading
+          (isBuffering || !duration || duration === 0)
+            ? 'cursor-not-allowed opacity-50'
+            : 'cursor-pointer'
         )}
         onClick={handleProgressClick}
       >

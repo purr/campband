@@ -994,6 +994,7 @@ Methods used:
 | **AudioContext suspended** | `ensureAudioContext()` resumes on user gesture, handles suspended state gracefully |
 | **Crossfade gain not applied** | Check `crossfadeGainNode` exists before fade, set to 0 before playing crossfade audio |
 | **Store resets on hot reload** | Effects check actual DOM state before pausing, sync store to DOM reality |
+| **Seeking during track change stops playback** | Deferred seek handling: if track is loading (duration = 0), store seek position and apply when track is ready. Resume playback after seek if it was playing before. Prevents audio from pausing when seeking on loading tracks or during track transitions. |
 
 ### Hot Reload Audio Persistence
 

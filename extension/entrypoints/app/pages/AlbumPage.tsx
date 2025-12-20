@@ -66,10 +66,13 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
 
   const handleTrackPlay = (track: Track, index: number) => {
     if (!currentAlbum) return;
+
+    // Set new queue with the album tracks, starting at the clicked track
+    // clearManual=true means we're starting fresh, so clear manual items
     const streamableTracks = currentAlbum.tracks.filter(t => t.streamUrl);
     const trackIndex = streamableTracks.findIndex(t => t.id === track.id);
     if (trackIndex !== -1) {
-      setQueue(streamableTracks, trackIndex);
+      setQueue(streamableTracks, trackIndex, undefined, true);
       play();
     }
   };

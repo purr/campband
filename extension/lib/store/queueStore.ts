@@ -26,8 +26,11 @@ interface QueueState {
   // Where playback started from (for "click album cover to go back" feature)
   playbackSourceRoute: Route | null;
 
+  // Manual queue items (tracks added via insertNext/addToQueue - should be preserved)
+  manualQueueItemIds: Set<number>;
+
   // Actions
-  setQueue: (tracks: Track[], startIndex?: number, sourceRoute?: Route) => void;
+  setQueue: (tracks: Track[], startIndex?: number, sourceRoute?: Route, clearManual?: boolean) => void;
   addToQueue: (track: Track) => void;
   addMultipleToQueue: (tracks: Track[]) => void;
   insertNext: (track: Track) => void;
@@ -35,6 +38,7 @@ interface QueueState {
   removeFromQueue: (index: number) => void;
   moveTrack: (fromIndex: number, toIndex: number) => void;
   clearQueue: () => void;
+  clearAutoQueue: () => void; // Clear auto-queue but preserve manual items
 
   // Navigation (also updates player)
   playNext: () => void;
@@ -46,6 +50,9 @@ interface QueueState {
   setShuffle: (shuffle: boolean) => void;
   shuffleQueue: () => void;
   unshuffleQueue: () => void;
+
+  // Loop/Repeat
+  expandQueueForLoop: () => void; // Add remaining tracks from originalQueue when loop is enabled
 
   // Computed
   hasNext: () => boolean;
@@ -63,8 +70,9 @@ export const useQueueStore = create<QueueState>()(
   history: [],
   originalQueue: [],
   playbackSourceRoute: null,
+  manualQueueItemIds: new Set<number>(),
 
-  setQueue: (tracks, startIndex = 0, sourceRoute) => {
+  setQueue: (tracks, startIndex = 0, sourceRoute, clearManual = false) => {
     const queue = [...tracks];
 
     // Get current route if no source provided
@@ -73,12 +81,33 @@ export const useQueueStore = create<QueueState>()(
       routeToStore = getRouterStore().currentRoute;
     }
 
+    // If clearManual is true, clear manual queue items
+    // Otherwise, preserve manual items that are still in the new queue
+    let manualQueueItemIds = new Set<number>();
+    if (!clearManual) {
+      const state = get();
+      // Preserve manual items that exist in the new queue
+      queue.forEach(track => {
+        if (state.manualQueueItemIds.has(track.id)) {
+          manualQueueItemIds.add(track.id);
+        }
+      });
+    }
+
+    console.log('[QueueStore] setQueue', {
+      trackCount: queue.length,
+      startIndex,
+      clearManual,
+      preservedManualItems: manualQueueItemIds.size
+    });
+
     set({
       queue,
       originalQueue: [...tracks],
       currentIndex: startIndex,
       history: [],
       playbackSourceRoute: routeToStore ?? null,
+      manualQueueItemIds,
     });
 
     // Update player's current track
@@ -88,9 +117,11 @@ export const useQueueStore = create<QueueState>()(
   },
 
   addToQueue: (track) => {
+    console.log('[QueueStore] addToQueue (manual)', track.id);
     set((state) => ({
       queue: [...state.queue, track],
       originalQueue: [...state.originalQueue, track],
+      manualQueueItemIds: new Set([...state.manualQueueItemIds, track.id]),
     }));
   },
 
@@ -102,10 +133,14 @@ export const useQueueStore = create<QueueState>()(
   },
 
   insertNext: (track) => {
+    console.log('[QueueStore] insertNext (manual)', track.id);
     set((state) => {
       const newQueue = [...state.queue];
       newQueue.splice(state.currentIndex + 1, 0, track);
-      return { queue: newQueue };
+      return {
+        queue: newQueue,
+        manualQueueItemIds: new Set([...state.manualQueueItemIds, track.id]),
+      };
     });
   },
 
@@ -162,28 +197,103 @@ export const useQueueStore = create<QueueState>()(
         queue: [currentTrack],
         currentIndex: 0,
         history: [],
-        originalQueue: [currentTrack]
+        originalQueue: [currentTrack],
+        manualQueueItemIds: new Set<number>(),
       });
     }
     // If no current track, do nothing - don't clear the queue entirely
     // This prevents accidentally removing a playing track
   },
 
+  clearAutoQueue: () => {
+    const state = get();
+    const currentTrack = state.queue[state.currentIndex];
+
+    // Keep current track + all manual queue items
+    const manualItems = state.queue.filter(track =>
+      state.manualQueueItemIds.has(track.id)
+    );
+
+    // If we have a current track, include it
+    const newQueue = currentTrack
+      ? [currentTrack, ...manualItems.filter(t => t.id !== currentTrack.id)]
+      : manualItems;
+
+    const newIndex = currentTrack ? 0 : -1;
+
+    console.log('[QueueStore] clearAutoQueue', {
+      before: state.queue.length,
+      after: newQueue.length,
+      manualItems: manualItems.length,
+      currentTrack: currentTrack?.id
+    });
+
+    set({
+      queue: newQueue,
+      currentIndex: newIndex,
+      originalQueue: newQueue,
+      history: [],
+      // Preserve manual queue item IDs
+    });
+  },
+
   playNext: () => {
     const state = get();
-    if (state.currentIndex < state.queue.length - 1) {
-      const currentTrack = state.queue[state.currentIndex];
-      const newIndex = state.currentIndex + 1;
-      const nextTrack = state.queue[newIndex];
+    const repeat = usePlayerStore.getState().repeat;
+
+    // If loop is enabled, expand queue with remaining tracks first
+    if (repeat === 'all') {
+      get().expandQueueForLoop();
+    }
+
+    const updatedState = get();
+
+    // Check if there's a next track in current queue
+    if (updatedState.currentIndex < updatedState.queue.length - 1) {
+      const currentTrack = updatedState.queue[updatedState.currentIndex];
+      const newIndex = updatedState.currentIndex + 1;
+      const nextTrack = updatedState.queue[newIndex];
 
       set({
         currentIndex: newIndex,
-        history: currentTrack ? [...state.history, currentTrack] : state.history,
+        history: currentTrack ? [...updatedState.history, currentTrack] : updatedState.history,
       });
 
       // Update player
       usePlayerStore.getState().setCurrentTrack(nextTrack);
       usePlayerStore.getState().play();
+      return;
+    }
+
+    // If we're at the end and loop is enabled, go to first track
+    if (repeat === 'all' && updatedState.originalQueue.length > 0) {
+      const currentTrack = updatedState.queue[updatedState.currentIndex];
+
+      // Loop back to first track in originalQueue
+      const firstTrack = updatedState.originalQueue[0];
+      if (firstTrack) {
+        const firstIndex = updatedState.queue.findIndex(t => t.id === firstTrack.id);
+        if (firstIndex !== -1) {
+          // First track is already in queue
+          console.log('[QueueStore] playNext - looping to first track (already in queue)', { firstIndex });
+          set({
+            currentIndex: firstIndex,
+            history: currentTrack ? [...updatedState.history, currentTrack] : updatedState.history,
+          });
+          usePlayerStore.getState().setCurrentTrack(firstTrack);
+          usePlayerStore.getState().play();
+        } else {
+          // First track not in queue, add it and play
+          console.log('[QueueStore] playNext - looping to first track (adding to queue)');
+          set({
+            queue: [...updatedState.queue, firstTrack],
+            currentIndex: updatedState.queue.length,
+            history: currentTrack ? [...updatedState.history, currentTrack] : updatedState.history,
+          });
+          usePlayerStore.getState().setCurrentTrack(firstTrack);
+          usePlayerStore.getState().play();
+        }
+      }
     }
   },
 
@@ -289,9 +399,62 @@ export const useQueueStore = create<QueueState>()(
     });
   },
 
+  expandQueueForLoop: () => {
+    const state = get();
+    const repeat = usePlayerStore.getState().repeat;
+
+    // Only expand if loop (repeat all) is enabled
+    if (repeat !== 'all') return;
+
+    // Only expand if we have an originalQueue
+    if (state.originalQueue.length === 0) return;
+
+    const currentTrack = state.queue[state.currentIndex];
+    if (!currentTrack) return;
+
+    // Find current track in originalQueue
+    const currentInOriginal = state.originalQueue.findIndex(t => t.id === currentTrack.id);
+    if (currentInOriginal === -1) return;
+
+    // Get remaining tracks from originalQueue (tracks after current in original order)
+    const remainingTracks = state.originalQueue.slice(currentInOriginal + 1);
+
+    // Get tracks that are already in queue (to avoid duplicates)
+    const queueTrackIds = new Set(state.queue.map(t => t.id));
+
+    // Add only tracks that aren't already in queue
+    const tracksToAdd = remainingTracks.filter(t => !queueTrackIds.has(t.id));
+
+    if (tracksToAdd.length > 0) {
+      console.log('[QueueStore] expandQueueForLoop', {
+        adding: tracksToAdd.length,
+        currentIndex: currentInOriginal,
+        originalLength: state.originalQueue.length,
+        currentTrack: currentTrack.id
+      });
+      set((state) => ({
+        queue: [...state.queue, ...tracksToAdd],
+      }));
+    }
+  },
+
   hasNext: () => {
     const state = get();
-    return state.currentIndex < state.queue.length - 1;
+    // Check if there's a next track in current queue
+    if (state.currentIndex < state.queue.length - 1) {
+      return true;
+    }
+    // If loop is enabled, check if there are more tracks in originalQueue
+    const repeat = usePlayerStore.getState().repeat;
+    if (repeat === 'all' && state.originalQueue.length > 0) {
+      const currentTrack = state.queue[state.currentIndex];
+      if (currentTrack) {
+        const currentInOriginal = state.originalQueue.findIndex(t => t.id === currentTrack.id);
+        // If we're not at the last track in originalQueue, there's more to play
+        return currentInOriginal < state.originalQueue.length - 1;
+      }
+    }
+    return false;
   },
 
   hasPrevious: () => {
@@ -316,7 +479,16 @@ export const useQueueStore = create<QueueState>()(
         shuffle: state.shuffle,
         originalQueue: state.originalQueue,
         playbackSourceRoute: state.playbackSourceRoute,
+        manualQueueItemIds: Array.from(state.manualQueueItemIds), // Convert Set to Array for persistence
       }),
+      // Restore Set from Array on load
+      onRehydrateStorage: () => (state) => {
+        if (state && Array.isArray(state.manualQueueItemIds)) {
+          state.manualQueueItemIds = new Set(state.manualQueueItemIds);
+        } else if (state) {
+          state.manualQueueItemIds = new Set<number>();
+        }
+      },
     }
   )
 );

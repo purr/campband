@@ -82,9 +82,11 @@ export function PlaylistPage({ playlistId }: PlaylistPageProps) {
 
   const handleTrackPlay = (track: PlaylistTrackItem, index: number) => {
     if (!track.streamUrl) return;
+
+    // clearManual=true means we're starting fresh
     const playable = toPlayableTracks(tracks);
     const trackIndex = playable.findIndex(t => t.id === track.id);
-    setQueue(playable, trackIndex >= 0 ? trackIndex : 0);
+    setQueue(playable, trackIndex >= 0 ? trackIndex : 0, undefined, true);
     play();
   };
 
