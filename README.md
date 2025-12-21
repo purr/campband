@@ -10,7 +10,7 @@
 [![Firefox](https://img.shields.io/badge/browser-Firefox-ff7139)](https://www.mozilla.org/firefox/)
 [![Built with Cursor](https://img.shields.io/badge/built%20with-Cursor%20AI-6366f1)](https://cursor.com)
 
-CampBand transforms Bandcamp into a sleek, Spotify-like music streaming experience. Browse artist discographies, explore albums, build playback queues, and save your favorites — all wrapped in a beautiful theme with liquid glass effects.
+CampBand transforms Bandcamp into a sleek, Spotify-like music streaming experience. Browse artist discographies, explore albums, build playback queues, and save your favorites — all wrapped in a beautiful theme with cool effects.
 
 **Smooth and seamless music browsing.**
 
