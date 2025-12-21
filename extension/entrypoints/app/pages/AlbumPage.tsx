@@ -28,11 +28,11 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
   // Set page title when album loads
   useEffect(() => {
     if (currentAlbum?.title) {
-      const artist = currentAlbum.artist || currentAlbum.band?.name || '';
+      const artist = currentAlbum.artist || currentAlbum.bandName || '';
       setPageTitle(artist ? `${currentAlbum.title} - ${artist}` : currentAlbum.title);
     }
     return () => setPageTitle(null);
-  }, [currentAlbum?.title, currentAlbum?.artist, currentAlbum?.band?.name, setPageTitle]);
+  }, [currentAlbum?.title, currentAlbum?.artist, currentAlbum?.bandName, setPageTitle]);
 
   // Check if we have the correct album loaded (not stale data from previous navigation)
   const isReady = !isLoading && currentAlbum && currentAlbum.url === albumUrl;
@@ -147,8 +147,28 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
         />
 
         <TrackList
-          tracks={currentAlbum.tracks}
-          onTrackPlay={handleTrackPlay}
+          tracks={currentAlbum.tracks.map(track => ({
+            id: track.id,
+            title: track.title,
+            artist: track.artist,
+            bandName: track.bandName,
+            albumTitle: track.albumTitle,
+            albumId: track.albumId,
+            artId: track.artId,
+            bandId: track.bandId,
+            duration: track.duration,
+            trackNum: track.trackNum,
+            albumUrl: track.albumUrl,
+            bandUrl: track.bandUrl,
+            streamUrl: track.streamUrl,
+          }))}
+          onTrackPlay={(trackItem, index) => {
+            // Find the original Track from currentAlbum.tracks by id
+            const originalTrack = currentAlbum.tracks.find(t => t.id === trackItem.id);
+            if (originalTrack) {
+              handleTrackPlay(originalTrack, index);
+            }
+          }}
         currentTrackId={currentTrack?.id}
         isPlaying={isPlaying}
         />

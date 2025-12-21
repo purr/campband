@@ -36,9 +36,24 @@ interface AppSettings {
   confirmOnUnlike: boolean;
 }
 
+interface LastFmSettings {
+  enabled: boolean;
+  username: string;
+  password: string; // Stored in plaintext (localStorage only accessible to extension)
+  apiKey: string;
+  apiSecret: string;
+  sessionKey: string | null; // Retrieved via auth.getMobileSession
+  connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
+  // Scrobbling criteria (must respect Last.fm rules: min 30s, min 50% or 4min)
+  minDuration: number; // Minimum track duration in seconds (default: 30, min: 30)
+  minPlayPercent: number; // Minimum play percentage (default: 50, min: 50, max: 100)
+  minPlayTime: number; // Alternative: minimum play time in seconds (default: 240, min: 30)
+}
+
 interface SettingsState {
   audio: AudioSettings;
   app: AppSettings;
+  lastfm: LastFmSettings;
 
   // Audio actions
   setCrossfadeEnabled: (enabled: boolean) => void;
@@ -57,6 +72,13 @@ interface SettingsState {
   setShowNotifications: (enabled: boolean) => void;
   setConfirmBeforeClearQueue: (enabled: boolean) => void;
   setConfirmOnUnlike: (enabled: boolean) => void;
+
+  // Last.fm actions
+  setLastFmEnabled: (enabled: boolean) => void;
+  setLastFmCredentials: (username: string, password: string, apiKey: string, apiSecret: string) => void;
+  setLastFmSessionKey: (sessionKey: string | null) => void;
+  setLastFmConnectionStatus: (status: LastFmSettings['connectionStatus']) => void;
+  setLastFmScrobbleCriteria: (minDuration: number, minPlayPercent: number, minPlayTime: number) => void;
 
   // Reset
   resetAudioSettings: () => void;
@@ -86,7 +108,20 @@ const defaultAppSettings: AppSettings = {
   theme: 'dark',
   showNotifications: true,
   confirmBeforeClearQueue: false,
-  confirmOnUnlike: false,
+  confirmOnUnlike: true,
+};
+
+const defaultLastFmSettings: LastFmSettings = {
+  enabled: false,
+  username: '',
+  password: '',
+  apiKey: '',
+  apiSecret: '',
+  sessionKey: null,
+  connectionStatus: 'disconnected',
+  minDuration: 30, // Last.fm minimum requirement
+  minPlayPercent: 50, // Last.fm minimum requirement
+  minPlayTime: 30, // Last.fm minimum requirement (smallest possible)
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -94,6 +129,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       audio: defaultAudioSettings,
       app: defaultAppSettings,
+      lastfm: defaultLastFmSettings,
 
       // Audio actions
       setCrossfadeEnabled: (enabled) =>
@@ -166,13 +202,47 @@ export const useSettingsStore = create<SettingsState>()(
       setConfirmOnUnlike: (enabled) =>
         set((state) => ({ app: { ...state.app, confirmOnUnlike: enabled } })),
 
+      // Last.fm actions
+      setLastFmEnabled: (enabled) =>
+        set((state) => ({ lastfm: { ...state.lastfm, enabled } })),
+
+      setLastFmCredentials: (username, password, apiKey, apiSecret) =>
+        set((state) => ({
+          lastfm: {
+            ...state.lastfm,
+            username,
+            password,
+            apiKey,
+            apiSecret,
+            // Reset session and connection status when credentials change
+            sessionKey: null,
+            connectionStatus: 'disconnected',
+          },
+        })),
+
+      setLastFmSessionKey: (sessionKey) =>
+        set((state) => ({ lastfm: { ...state.lastfm, sessionKey } })),
+
+      setLastFmConnectionStatus: (connectionStatus) =>
+        set((state) => ({ lastfm: { ...state.lastfm, connectionStatus } })),
+
+      setLastFmScrobbleCriteria: (minDuration, minPlayPercent, minPlayTime) =>
+        set((state) => ({
+          lastfm: {
+            ...state.lastfm,
+            minDuration: Math.max(30, minDuration), // Enforce Last.fm minimum
+            minPlayPercent: Math.max(50, Math.min(100, minPlayPercent)), // Enforce Last.fm minimum, max 100
+            minPlayTime: Math.max(30, minPlayTime), // Enforce minimum
+          },
+        })),
+
       // Reset
       resetAudioSettings: () => set({ audio: defaultAudioSettings }),
-      resetAllSettings: () => set({ audio: defaultAudioSettings, app: defaultAppSettings }),
+      resetAllSettings: () => set({ audio: defaultAudioSettings, app: defaultAppSettings, lastfm: defaultLastFmSettings }),
     }),
     {
       name: 'campband-settings',
-      version: 1,
+      version: 2,
       migrate: (persistedState, version) => {
         const state = persistedState as SettingsState;
 
@@ -181,6 +251,14 @@ export const useSettingsStore = create<SettingsState>()(
           // Ensure eq property exists
           if (!state.audio.eq) {
             state.audio.eq = defaultEqSettings;
+          }
+        }
+
+        // Migration from version 1 (before Last.fm)
+        if (version === 0 || version === 1) {
+          // Ensure lastfm property exists
+          if (!state.lastfm) {
+            state.lastfm = defaultLastFmSettings;
           }
         }
 
@@ -203,6 +281,10 @@ export const useSettingsStore = create<SettingsState>()(
           app: {
             ...currentState.app,
             ...persisted.app,
+          },
+          lastfm: {
+            ...defaultLastFmSettings,
+            ...(persisted.lastfm || {}),
           },
         };
       },

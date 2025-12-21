@@ -12,6 +12,37 @@ import { App } from '../app/App';
 // Import CSS as raw string for injection into page
 import globalsCss from '@/styles/globals.css?inline';
 
+// Detect hot-reload and trigger full page refresh
+if (import.meta.hot) {
+  // Check if module was already loaded (indicates hot-reload)
+  if ((window as any).__campband_module_loaded__) {
+    console.log('[CampBand] Hot-reload detected (module reload) - refreshing page...');
+    window.location.reload();
+    // Can't return here in module scope, but reload will happen
+  }
+
+  // Only set up listeners once - check if they're already set up
+  if (!(window as any).__campband_hmr_listeners_setup__) {
+    // Listen for HMR updates and refresh the page immediately
+    import.meta.hot.on('vite:beforeUpdate', () => {
+      console.log('[CampBand] Hot-reload detected - refreshing page...');
+      window.location.reload();
+    });
+
+    // Also listen for any HMR update
+    import.meta.hot.on('vite:afterUpdate', () => {
+      console.log('[CampBand] Hot-reload update detected - refreshing page...');
+      window.location.reload();
+    });
+
+    // Mark listeners as set up
+    (window as any).__campband_hmr_listeners_setup__ = true;
+  }
+
+  // Mark module as loaded
+  (window as any).__campband_module_loaded__ = true;
+}
+
 // Configuration: which hosts to inject on
 const ALLOWED_HOSTS = [
   'purr.github.io',
@@ -26,6 +57,13 @@ export default defineContentScript({
   // Don't use cssInjectionMode - we'll inject CSS manually into the page
 
   async main(ctx) {
+    // Check for hot-reload in main function too (in case module-level check didn't catch it)
+    if (import.meta.hot && (window as any).__campband_module_loaded__) {
+      console.log('[CampBand] Hot-reload detected in main() - refreshing page...');
+      window.location.reload();
+      return;
+    }
+
     const host = window.location.hostname;
 
     // Safety check - only run on allowed hosts

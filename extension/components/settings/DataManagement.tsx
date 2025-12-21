@@ -100,7 +100,7 @@ export function DataManagement() {
   // Get store data
   const { favoriteTracks, favoriteAlbums, favoriteArtists, init: initLibrary } = useLibraryStore();
   const { playlists, init: initPlaylists } = usePlaylistStore();
-  const { audio, app } = useSettingsStore();
+  const { audio, app, lastfm, setLastFmCredentials, setLastFmSessionKey, setLastFmConnectionStatus, setLastFmScrobbleCriteria, setLastFmEnabled } = useSettingsStore();
 
   // Counts for display
   const likeCount = favoriteTracks.length + favoriteAlbums.length;
@@ -110,7 +110,7 @@ export function DataManagement() {
   // Handle export
   const handleExport = async () => {
     // Check if at least one option is selected
-    if (!exportLikes && !exportPlaylists && !exportFollowing && !exportSettings) {
+    if (!exportLikes && !exportPlaylists && !exportFollowing && !exportSettings && !exportLastfm) {
       return;
     }
 
@@ -124,11 +124,13 @@ export function DataManagement() {
         playlists: exportPlaylists,
         following: exportFollowing,
         settings: exportSettings,
+        lastfm: exportLastfm,
       };
 
       const data = await exportData(
         options,
-        exportSettings ? { audio, app } : undefined,
+        exportSettings ? { audio: audio as Record<string, unknown>, app: app as Record<string, unknown> } : undefined,
+        exportLastfm ? (lastfm as Record<string, unknown>) : undefined,
         setProgress
       );
 
@@ -158,8 +160,49 @@ export function DataManagement() {
 
     try {
       const jsonString = await readFileAsString(file);
+      const parsedData = JSON.parse(jsonString);
       const result = await importData(jsonString, setProgress);
       setImportResult(result);
+
+      // Import settings if present
+      if (parsedData.settings) {
+        // Settings import is handled by the store persistence
+        // The store will automatically pick up the imported data
+      }
+
+      // Import Last.fm credentials and settings if present
+      if (parsedData.lastfm && typeof parsedData.lastfm === 'object') {
+        const lastfmData = parsedData.lastfm as Record<string, unknown>;
+        if (typeof lastfmData.username === 'string' &&
+            typeof lastfmData.password === 'string' &&
+            typeof lastfmData.apiKey === 'string' &&
+            typeof lastfmData.apiSecret === 'string') {
+          setLastFmCredentials(
+            lastfmData.username,
+            lastfmData.password,
+            lastfmData.apiKey,
+            lastfmData.apiSecret
+          );
+        }
+        if (typeof lastfmData.sessionKey === 'string') {
+          setLastFmSessionKey(lastfmData.sessionKey);
+        }
+        if (typeof lastfmData.connectionStatus === 'string') {
+          setLastFmConnectionStatus(lastfmData.connectionStatus as 'disconnected' | 'connecting' | 'connected' | 'error');
+        }
+        if (typeof lastfmData.enabled === 'boolean') {
+          setLastFmEnabled(lastfmData.enabled);
+        }
+        if (typeof lastfmData.minDuration === 'number' &&
+            typeof lastfmData.minPlayPercent === 'number' &&
+            typeof lastfmData.minPlayTime === 'number') {
+          setLastFmScrobbleCriteria(
+            lastfmData.minDuration,
+            lastfmData.minPlayPercent,
+            lastfmData.minPlayTime
+          );
+        }
+      }
 
       // Reinitialize stores to pick up new data
       if (result.success) {
@@ -217,7 +260,7 @@ export function DataManagement() {
     if (file) processFile(file);
   };
 
-  const isAnyExportSelected = exportLikes || exportPlaylists || exportFollowing || exportSettings;
+  const isAnyExportSelected = exportLikes || exportPlaylists || exportFollowing || exportSettings || exportLastfm;
 
   return (
     <div className="space-y-6">
@@ -270,6 +313,16 @@ export function DataManagement() {
             icon={<Settings size={18} />}
             checked={exportSettings}
             onChange={setExportSettings}
+            disabled={isExporting || isImporting}
+          />
+
+          <Checkbox
+            id="export-lastfm"
+            label="Last.fm Login"
+            description="Credentials & scrobbling settings"
+            icon={<Music size={18} />}
+            checked={exportLastfm}
+            onChange={setExportLastfm}
             disabled={isExporting || isImporting}
           />
         </div>

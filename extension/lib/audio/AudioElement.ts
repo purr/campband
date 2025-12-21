@@ -120,14 +120,46 @@ export class AudioElement {
     const errorHandler = () => {
       const error = audio.error;
       let message = 'Unknown playback error';
+      let errorCode = 'UNKNOWN';
       if (error) {
         switch (error.code) {
-          case MediaError.MEDIA_ERR_ABORTED: message = 'Playback aborted'; break;
-          case MediaError.MEDIA_ERR_NETWORK: message = 'Network error - stream may have expired'; break;
-          case MediaError.MEDIA_ERR_DECODE: message = 'Audio decode error'; break;
-          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: message = 'Audio format not supported'; break;
+          case MediaError.MEDIA_ERR_ABORTED:
+            // Abort errors are expected when cancelling loads - don't show as error
+            message = 'Playback aborted';
+            errorCode = 'MEDIA_ERR_ABORTED';
+            // Don't call onError for abort - it's expected during load cancellation
+            return;
+          case MediaError.MEDIA_ERR_NETWORK:
+            message = 'Network error - stream may have expired';
+            errorCode = 'MEDIA_ERR_NETWORK';
+            break;
+          case MediaError.MEDIA_ERR_DECODE:
+            message = 'Audio decode error';
+            errorCode = 'MEDIA_ERR_DECODE';
+            break;
+          case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            message = 'Audio format not supported';
+            errorCode = 'MEDIA_ERR_SRC_NOT_SUPPORTED';
+            break;
         }
       }
+
+      console.error('[AudioElement] ERROR EVENT', {
+        errorCode,
+        message,
+        currentSrc: audio.currentSrc?.substring(0, 50),
+        src: audio.src?.substring(0, 50),
+        currentTime: audio.currentTime,
+        duration: audio.duration,
+        readyState: audio.readyState,
+        networkState: audio.networkState,
+        paused: audio.paused,
+        error: error ? {
+          code: error.code,
+          message: error.message
+        } : null
+      });
+
       this.callbacks.onError?.(message);
     };
     const loadStartHandler = () => this.callbacks.onLoadStart?.();
@@ -208,16 +240,18 @@ export class AudioElement {
       return { success: true };
     } catch (error) {
       // Handle abort errors silently (happens during rapid track changes)
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      // Check for abort in multiple ways
+      const isAbort =
+        (error instanceof DOMException && error.name === 'AbortError') ||
+        (error instanceof Error && error.name === 'AbortError') ||
+        (error instanceof Error && error.message.toLowerCase().includes('aborted')) ||
+        (error instanceof Error && error.message.toLowerCase().includes('abort'));
+
+      if (isAbort) {
+        // Don't log or call onError for abort - it's expected
         return { success: false, error: 'Aborted' };
       }
-      if (error instanceof Error && error.name === 'AbortError') {
-        return { success: false, error: 'Aborted' };
-      }
-      // Also catch "The operation was aborted" message
-      if (error instanceof Error && error.message.includes('aborted')) {
-        return { success: false, error: 'Aborted' };
-      }
+
       console.error('[AudioElement] Load failed:', error);
       const errorMsg = error instanceof Error ? error.message : 'Load failed';
       this.callbacks.onError?.(errorMsg);

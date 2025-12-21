@@ -63,14 +63,18 @@ export const usePlayerStore = create<PlayerState>()(
         currentTrack: track,
         // Only reset time if explicitly requested (not when restoring from storage)
         currentTime: resetTime ? 0 : state.currentTime,
-        duration: track?.duration || state.duration || 0,
+        // Always reset duration to 0 when switching tracks - it will be set when audio loads
+        duration: resetTime ? 0 : (track?.duration || state.duration || 0),
       })),
       setIsPlaying: (isPlaying) => set({ isPlaying }),
       setIsBuffering: (isBuffering) => set({ isBuffering }),
       setCurrentTime: (currentTime) => set({ currentTime }),
       setDuration: (duration) => set({ duration }),
       setVolume: (volume) => set((state) => {
-        const clampedVolume = Math.max(0, Math.min(1, volume));
+        // Normalize to 2 decimal places to avoid floating point precision issues
+        // This ensures volumes are stored consistently (e.g., 0.98 stays 0.98, not 0.9800000190734863)
+        const normalizedVolume = Math.round(volume * 100) / 100;
+        const clampedVolume = Math.max(0, Math.min(1, normalizedVolume));
         // If user changes volume while muted, unmute them (they're adjusting volume)
         if (state.isMuted && clampedVolume > 0) {
           return {

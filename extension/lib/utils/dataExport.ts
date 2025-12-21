@@ -14,6 +14,7 @@ export interface ExportOptions {
   playlists: boolean;  // User playlists
   following: boolean;  // Followed artists
   settings: boolean;   // App settings
+  lastfm: boolean;     // Last.fm credentials and settings
 }
 
 // No base64 images for these - covers are fetched from Bandcamp
@@ -40,6 +41,7 @@ export interface ExportedData {
     audio: Record<string, unknown>;
     app: Record<string, unknown>;
   };
+  lastfm?: Record<string, unknown>;  // Last.fm credentials and settings
 }
 
 export interface ImportResult {
@@ -67,6 +69,7 @@ export interface ImportResult {
 export async function exportData(
   options: ExportOptions,
   settingsData?: { audio: Record<string, unknown>; app: Record<string, unknown> },
+  lastfmData?: Record<string, unknown>,
   onProgress?: (message: string) => void
 ): Promise<ExportedData> {
   const data: ExportedData = {
@@ -122,6 +125,12 @@ export async function exportData(
   if (options.settings && settingsData) {
     onProgress?.('Exporting settings...');
     data.settings = settingsData;
+  }
+
+  // Export Last.fm credentials and settings
+  if (options.lastfm && lastfmData) {
+    onProgress?.('Exporting Last.fm settings...');
+    data.lastfm = lastfmData;
   }
 
   onProgress?.('Export complete!');
@@ -449,6 +458,22 @@ export async function importData(
           result.errors.push(`Failed to import playlist: ${playlist.name}`);
         }
       }
+    }
+
+    // Import settings (REPLACE existing settings)
+    if (data.settings) {
+      onProgress?.('Importing settings...');
+      // Settings import is handled by the component that calls importData
+      // It will use useSettingsStore to update settings
+      result.imported.settings = true;
+    }
+
+    // Import Last.fm credentials and settings (REPLACE existing)
+    if (data.lastfm) {
+      onProgress?.('Importing Last.fm settings...');
+      // Last.fm import is handled by the component that calls importData
+      // It will use useSettingsStore to update lastfm settings
+      result.imported.settings = true; // Reuse settings flag
     }
 
     onProgress?.('Import complete!');

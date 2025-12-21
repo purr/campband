@@ -254,14 +254,29 @@ export const useQueueStore = create<QueueState>()(
       const newIndex = updatedState.currentIndex + 1;
       const nextTrack = updatedState.queue[newIndex];
 
+      console.log('[QueueStore] playNext - advancing to next track', {
+        fromIndex: updatedState.currentIndex,
+        toIndex: newIndex,
+        fromTrackId: currentTrack?.id,
+        toTrackId: nextTrack?.id,
+        fromTitle: currentTrack?.title,
+        toTitle: nextTrack?.title,
+      });
+
       set({
         currentIndex: newIndex,
         history: currentTrack ? [...updatedState.history, currentTrack] : updatedState.history,
       });
 
-      // Update player
-      usePlayerStore.getState().setCurrentTrack(nextTrack);
-      usePlayerStore.getState().play();
+      // CRITICAL: Update current track IMMEDIATELY
+      const playerStore = usePlayerStore.getState();
+      playerStore.setCurrentTrack(nextTrack, true);
+      console.log('[QueueStore] playNext - updated currentTrack', {
+        storeTrackId: usePlayerStore.getState().currentTrack?.id,
+        expectedTrackId: nextTrack.id,
+        match: usePlayerStore.getState().currentTrack?.id === nextTrack.id,
+      });
+      playerStore.play();
       return;
     }
 
@@ -272,6 +287,13 @@ export const useQueueStore = create<QueueState>()(
       // Loop back to first track in originalQueue
       const firstTrack = updatedState.originalQueue[0];
       if (firstTrack) {
+        console.log('[QueueStore] playNext - looping to first track', {
+          currentTrackId: currentTrack?.id,
+          firstTrackId: firstTrack.id,
+          currentTitle: currentTrack?.title,
+          firstTitle: firstTrack.title,
+        });
+
         const firstIndex = updatedState.queue.findIndex(t => t.id === firstTrack.id);
         if (firstIndex !== -1) {
           // First track is already in queue
@@ -280,8 +302,15 @@ export const useQueueStore = create<QueueState>()(
             currentIndex: firstIndex,
             history: currentTrack ? [...updatedState.history, currentTrack] : updatedState.history,
           });
-          usePlayerStore.getState().setCurrentTrack(firstTrack);
-          usePlayerStore.getState().play();
+          // CRITICAL: Update current track IMMEDIATELY
+          const playerStore = usePlayerStore.getState();
+          playerStore.setCurrentTrack(firstTrack, true);
+          console.log('[QueueStore] playNext - updated currentTrack', {
+            storeTrackId: usePlayerStore.getState().currentTrack?.id,
+            expectedTrackId: firstTrack.id,
+            match: usePlayerStore.getState().currentTrack?.id === firstTrack.id,
+          });
+          playerStore.play();
         } else {
           // First track not in queue, add it and play
           console.log('[QueueStore] playNext - looping to first track (adding to queue)');
@@ -290,8 +319,15 @@ export const useQueueStore = create<QueueState>()(
             currentIndex: updatedState.queue.length,
             history: currentTrack ? [...updatedState.history, currentTrack] : updatedState.history,
           });
-          usePlayerStore.getState().setCurrentTrack(firstTrack);
-          usePlayerStore.getState().play();
+          // CRITICAL: Update current track IMMEDIATELY
+          const playerStore = usePlayerStore.getState();
+          playerStore.setCurrentTrack(firstTrack, true);
+          console.log('[QueueStore] playNext - updated currentTrack (added to queue)', {
+            storeTrackId: usePlayerStore.getState().currentTrack?.id,
+            expectedTrackId: firstTrack.id,
+            match: usePlayerStore.getState().currentTrack?.id === firstTrack.id,
+          });
+          playerStore.play();
         }
       }
     }
@@ -305,6 +341,15 @@ export const useQueueStore = create<QueueState>()(
       const newIndex = state.currentIndex + 1;
       const nextTrack = state.queue[newIndex];
 
+      console.log('[QueueStore] advanceToNext', {
+        fromIndex: state.currentIndex,
+        toIndex: newIndex,
+        fromTrackId: currentTrack?.id,
+        toTrackId: nextTrack?.id,
+        fromTitle: currentTrack?.title,
+        toTitle: nextTrack?.title,
+      });
+
       set({
         currentIndex: newIndex,
         history: currentTrack ? [...state.history, currentTrack] : state.history,
@@ -312,9 +357,18 @@ export const useQueueStore = create<QueueState>()(
 
       // Update player's current track info (but don't reload since crossfade already loaded it)
       const playerStore = usePlayerStore.getState();
-      // Use internal setState to avoid triggering load
-      usePlayerStore.setState({ currentTrack: nextTrack });
+      // Use internal setState to avoid triggering load, but ensure it updates
+      usePlayerStore.setState({
+        currentTrack: nextTrack,
+        duration: nextTrack?.duration || playerStore.duration || 0,
+      });
       playerStore.setIsPlaying(true);
+
+      console.log('[QueueStore] advanceToNext - updated player store', {
+        currentTrackId: usePlayerStore.getState().currentTrack?.id,
+        expectedTrackId: nextTrack.id,
+        match: usePlayerStore.getState().currentTrack?.id === nextTrack.id,
+      });
     }
   },
 
@@ -352,13 +406,30 @@ export const useQueueStore = create<QueueState>()(
     if (index >= 0 && index < state.queue.length) {
       const currentTrack = state.queue[state.currentIndex];
       const newTrack = state.queue[index];
+
+      console.log('[QueueStore] playTrackAt', {
+        index,
+        currentIndex: state.currentIndex,
+        currentTrackId: currentTrack?.id,
+        newTrackId: newTrack.id,
+        currentTitle: currentTrack?.title,
+        newTitle: newTrack.title,
+      });
+
       set({
         currentIndex: index,
         history: currentTrack ? [...state.history, currentTrack] : state.history,
       });
 
-      usePlayerStore.getState().setCurrentTrack(newTrack);
-      usePlayerStore.getState().play();
+      // CRITICAL: Update current track IMMEDIATELY
+      const playerStore = usePlayerStore.getState();
+      playerStore.setCurrentTrack(newTrack, true);
+      console.log('[QueueStore] playTrackAt - updated currentTrack', {
+        storeTrackId: usePlayerStore.getState().currentTrack?.id,
+        expectedTrackId: newTrack.id,
+        match: usePlayerStore.getState().currentTrack?.id === newTrack.id,
+      });
+      playerStore.play();
     }
   },
 

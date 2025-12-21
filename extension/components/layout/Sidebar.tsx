@@ -29,6 +29,7 @@ export function Sidebar() {
     // Check if we're in an extension context (not content script on website)
     const isExtensionContext = typeof browser !== 'undefined' &&
       browser.runtime?.getURL &&
+      typeof browser.runtime.getURL === 'function' &&
       !window.location.hostname.includes('github.io');
 
     if (isExtensionContext) {

@@ -27,13 +27,12 @@ export function ReleaseGrid({ releases, viewMode = 'grid', bandInfo, onReleaseCl
       id: release.itemId,
       title: release.title,
       // Use band name from bandInfo (passed from artist page) or fall back to release data
-      artist: bandInfo?.name || release.bandName || release.artistOverride || '',
+      artist: bandInfo?.name || release.artistOverride || '',
       url: release.url,
-      artId: release.artId,
+      artId: typeof release.artId === 'number' ? release.artId : undefined,
       // Include band info for proper favoriting
       bandId: bandInfo?.id || release.bandId,
       bandUrl: bandInfo?.url,
-      releaseDate: release.releaseDate,
     });
   };
 
@@ -276,21 +275,7 @@ function ReleaseListItem({ release, onClick, onPlay, onContextMenu }: ReleaseLis
         {release.itemType === 'album' ? 'Album' : 'Track'}
       </div>
 
-      {/* Track Count (for albums) */}
-      {release.itemType === 'album' && release.trackCount && (
-        <div className="hidden md:flex items-center gap-1.5 text-sm text-muted">
-          <ListMusic size={14} />
-          {release.trackCount}
-        </div>
-      )}
-
-      {/* Release Date */}
-      {release.releaseDate && (
-        <div className="hidden lg:flex items-center gap-1.5 text-sm text-muted min-w-[100px]">
-          <Calendar size={14} />
-          {release.releaseDate}
-        </div>
-      )}
+      {/* Track Count and Release Date not available in DiscographyItem */}
     </div>
   );
 }

@@ -18,6 +18,8 @@ export default defineConfig({
       '*://*.bcbits.com/*',
       // GitHub Pages host for the app
       'https://purr.github.io/*',
+      // Last.fm API for scrobbling
+      'https://ws.audioscrobbler.com/*',
     ],
 
     // Extension icons
@@ -54,6 +56,12 @@ export default defineConfig({
     build: {
       // Suppress chunk size warning - the app chunk is large but expected
       chunkSizeWarningLimit: 700,
+    },
+    server: {
+      // Suppress MaxListenersExceededWarning from Node.js readline interface
+      hmr: {
+        overlay: true,
+      },
     },
   }),
 });

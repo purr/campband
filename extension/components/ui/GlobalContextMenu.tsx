@@ -618,7 +618,6 @@ function ArtistMenuContent({ artist }: { artist: ArtistData }) {
         id: artist.id,
         name: artist.name,
         url: artist.url,
-        imageUrl: artist.imageUrl,
       });
     }
     closeContextMenu();
@@ -719,9 +718,9 @@ function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
 
   const handlePlay = async () => {
     const tracks = await getPlaylistTracks(playlist.trackIds);
-    const streamable = tracks.filter(t => t.streamUrl);
+    const streamable = tracks.filter(t => t.streamUrl && t.duration);
     if (streamable.length > 0) {
-      setQueue(streamable);
+      setQueue(streamable.map(t => toPlayableTrack(t)));
       play();
     }
     closeContextMenu();
@@ -729,9 +728,9 @@ function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
 
   const handlePlayNext = async () => {
     const tracks = await getPlaylistTracks(playlist.trackIds);
-    const streamable = tracks.filter(t => t.streamUrl);
+    const streamable = tracks.filter(t => t.streamUrl && t.duration);
     if (streamable.length > 0) {
-      insertMultipleNext(streamable);
+      insertMultipleNext(streamable.map(t => toPlayableTrack(t)));
       setPlayingNext(true);
       setTimeout(() => closeContextMenu(), 800);
       return;
@@ -741,9 +740,9 @@ function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
 
   const handleAddToQueue = async () => {
     const tracks = await getPlaylistTracks(playlist.trackIds);
-    const streamable = tracks.filter(t => t.streamUrl);
+    const streamable = tracks.filter(t => t.streamUrl && t.duration);
     if (streamable.length > 0) {
-      addMultipleToQueue(streamable);
+      addMultipleToQueue(streamable.map(t => toPlayableTrack(t)));
       setAddedToQueue(true);
       setTimeout(() => closeContextMenu(), 800);
       return;
@@ -753,7 +752,14 @@ function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
 
   const handleEdit = () => {
     closeContextMenu();
-    openEditPlaylistModal(playlist);
+    if (playlist.id) {
+      openEditPlaylistModal({
+        id: playlist.id,
+        name: playlist.name,
+        description: playlist.description,
+        coverImage: playlist.coverImage,
+      });
+    }
   };
 
   const handleDelete = async () => {
@@ -846,18 +852,18 @@ function LikedSongsMenuContent() {
   const [addedToQueue, setAddedToQueue] = useState(false);
 
   const handlePlay = () => {
-    const streamable = favoriteTracks.filter(t => t.streamUrl);
+    const streamable = favoriteTracks.filter(t => t.streamUrl && t.duration);
     if (streamable.length > 0) {
-      setQueue(streamable);
+      setQueue(streamable.map(t => toPlayableTrack(t)));
       play();
     }
     closeContextMenu();
   };
 
   const handlePlayNext = () => {
-    const streamable = favoriteTracks.filter(t => t.streamUrl);
+    const streamable = favoriteTracks.filter(t => t.streamUrl && t.duration);
     if (streamable.length > 0) {
-      insertMultipleNext(streamable);
+      insertMultipleNext(streamable.map(t => toPlayableTrack(t)));
       setPlayingNext(true);
       setTimeout(() => closeContextMenu(), 800);
       return;
@@ -866,9 +872,9 @@ function LikedSongsMenuContent() {
   };
 
   const handleAddToQueue = () => {
-    const streamable = favoriteTracks.filter(t => t.streamUrl);
+    const streamable = favoriteTracks.filter(t => t.streamUrl && t.duration);
     if (streamable.length > 0) {
-      addMultipleToQueue(streamable);
+      addMultipleToQueue(streamable.map(t => toPlayableTrack(t)));
       setAddedToQueue(true);
       setTimeout(() => closeContextMenu(), 800);
       return;

@@ -155,14 +155,7 @@ export function LibraryPage() {
   if (!isInitialized) {
     return (
       <div className="min-h-full">
-        <PageHeader
-          title={
-            <>
-              <Heart size={20} className="text-love" />
-              Library
-            </>
-          }
-        />
+        <PageHeader />
         <div className="p-8">
           <LibrarySkeleton />
         </div>
@@ -180,13 +173,7 @@ export function LibraryPage() {
     <div className="min-h-full">
       {/* Header */}
       <PageHeader
-        title={
-          <>
-            <Heart size={20} className="text-love" />
-            Library
-          </>
-        }
-        center={
+        right={
           <div className="flex gap-1">
           {tabs.map((tab) => (
             <button

@@ -39,6 +39,11 @@ interface RouterState {
   pageTitle: string | null;
   setPageTitle: (title: string | null) => void;
 
+  // Scroll position storage (keyed by route identifier)
+  scrollPositions: Record<string, number>;
+  saveScrollPosition: (routeKey: string, position: number) => void;
+  getScrollPosition: (routeKey: string) => number | undefined;
+
   // Navigation
   navigate: (route: Route, options?: { replace?: boolean }) => void;
 
@@ -51,20 +56,70 @@ interface RouterState {
   _initialize: () => void;
 }
 
+// Helper to generate a unique key for a route (for scroll position storage)
+function getRouteKey(route: Route): string {
+  switch (route.name) {
+    case 'artist':
+      return `artist:${route.url}`;
+    case 'album':
+      return `album:${route.url}`;
+    case 'search':
+      return `search:${route.query || ''}`;
+    case 'playlist':
+      return `playlist:${route.id}`;
+    case 'home':
+      return 'home';
+    case 'following':
+      return 'following';
+    case 'liked':
+      return 'liked';
+    case 'library':
+      return 'library';
+    case 'settings':
+      return 'settings';
+    default:
+      // Exhaustive check - should never reach here
+      const _exhaustive: never = route;
+      return 'unknown';
+  }
+}
+
 export const useRouterStore = create<RouterState>()((set, get) => ({
   currentRoute: { name: 'home' },
   previousRoute: null,
   isInitialized: false,
   pageTitle: null,
+  scrollPositions: {},
 
   setPageTitle: (title) => set({ pageTitle: title }),
 
+  saveScrollPosition: (routeKey, position) => {
+    set((state) => ({
+      scrollPositions: {
+        ...state.scrollPositions,
+        [routeKey]: position,
+      },
+    }));
+  },
+
+  getScrollPosition: (routeKey) => {
+    return get().scrollPositions[routeKey];
+  },
+
   navigate: (route, options) => {
-    const { currentRoute } = get();
+    const { currentRoute, saveScrollPosition } = get();
 
     // Don't navigate if it's the same route
     if (isSameRoute(currentRoute, route)) {
       return;
+    }
+
+    // Save scroll position of current route before navigating away
+    const currentRouteKey = getRouteKey(currentRoute);
+    const scrollContainer = document.querySelector('main[class*="overflow-y-auto"]') as HTMLElement;
+    if (scrollContainer) {
+      const scrollPosition = scrollContainer.scrollTop;
+      saveScrollPosition(currentRouteKey, scrollPosition);
     }
 
     // Update URL hash (this triggers browser history)
@@ -84,7 +139,16 @@ export const useRouterStore = create<RouterState>()((set, get) => ({
   },
 
   goBack: () => {
-    const { previousRoute } = get();
+    const { previousRoute, currentRoute, saveScrollPosition } = get();
+
+    // Save scroll position of current route before navigating away
+    const currentRouteKey = getRouteKey(currentRoute);
+    const scrollContainer = document.querySelector('main[class*="overflow-y-auto"]') as HTMLElement;
+    if (scrollContainer) {
+      const scrollPosition = scrollContainer.scrollTop;
+      saveScrollPosition(currentRouteKey, scrollPosition);
+    }
+
     if (previousRoute) {
       // Navigate to previous route without adding to history
       const hash = routeToHash(previousRoute);
@@ -109,6 +173,16 @@ export const useRouterStore = create<RouterState>()((set, get) => ({
   },
 
   _setRouteFromHash: (route) => {
+    const { currentRoute, saveScrollPosition } = get();
+
+    // Save scroll position of current route before navigating away
+    const currentRouteKey = getRouteKey(currentRoute);
+    const scrollContainer = document.querySelector('main[class*="overflow-y-auto"]') as HTMLElement;
+    if (scrollContainer) {
+      const scrollPosition = scrollContainer.scrollTop;
+      saveScrollPosition(currentRouteKey, scrollPosition);
+    }
+
     set({ currentRoute: route });
   },
 

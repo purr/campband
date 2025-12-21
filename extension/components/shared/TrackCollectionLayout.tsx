@@ -209,16 +209,16 @@ export function CollectionHeader({
           blur="3xl"
           scale={1.4}
           opacity={0.5}
-          accentGlow={accentColor}
+          accentGlow={accentColor === 'none' ? 'none' : (accentColor || 'rose')}
         />
       ) : (
         <div className={cn(
           'absolute inset-0 bg-linear-to-b to-transparent',
-          accentColor === 'love' && 'from-love/20',
           accentColor === 'rose' && 'from-rose/20',
           accentColor === 'iris' && 'from-iris/20',
           accentColor === 'foam' && 'from-foam/20',
           accentColor === 'pine' && 'from-pine/20',
+          accentColor === 'gold' && 'from-gold/20',
         )} />
       )}
 
@@ -854,9 +854,9 @@ export function PlaylistTrackList({
   const setSort = onSortChange || setInternalSort;
 
   // Responsive columns - hide in order: Added → Album → Duration
-  const showAdded = width >= BREAKPOINTS.HIDE_ADDED;
-  const showAlbum = width >= BREAKPOINTS.HIDE_ALBUM;
-  const showDuration = width >= BREAKPOINTS.HIDE_DURATION;
+  const showAdded: boolean = width >= BREAKPOINTS.HIDE_ADDED;
+  const showAlbum: boolean = width >= BREAKPOINTS.HIDE_ALBUM;
+  const showDuration: boolean = width >= BREAKPOINTS.HIDE_DURATION;
   const gridColumns = getGridColumns(showAlbum, showAdded, showDuration, true);
 
   // Sort tracks

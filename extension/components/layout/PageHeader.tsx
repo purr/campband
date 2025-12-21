@@ -101,32 +101,9 @@ export function PageHeader({
     inputRef.current?.focus();
   };
 
-  // Track if we just focused to prevent click from immediately closing
-  const justFocusedRef = useRef(false);
-
-  const handleInputClick = () => {
-    // If we just focused, don't toggle (let onFocus handle opening)
-    if (justFocusedRef.current) {
-      justFocusedRef.current = false;
-      return;
-    }
-
-    // Already focused and open - close it
-    if (showDropdown) {
-      setShowDropdown(false);
-      setIsFocused(false);
-      inputRef.current?.blur();
-    }
-  };
-
   const handleFocus = () => {
-    justFocusedRef.current = true;
     setIsFocused(true);
     setShowDropdown(true);
-    // Reset flag after a short delay
-    setTimeout(() => {
-      justFocusedRef.current = false;
-    }, 100);
   };
 
   const handleBlur = () => {
@@ -186,7 +163,6 @@ export function PageHeader({
                 type="text"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                onClick={handleInputClick}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
                 placeholder="Search artists, albums, tracks..."

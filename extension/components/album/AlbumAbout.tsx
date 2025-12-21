@@ -83,9 +83,9 @@ export function AlbumAbout({ about, credits, tags }: AlbumAboutProps) {
             <h4 className="text-sm font-medium text-text/60 uppercase tracking-wider">Tags</h4>
           </div>
           <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
+            {tags.map((tag, index) => (
               <span
-                key={tag}
+                key={`${tag}-${index}`}
                 className={cn(
                   'inline-flex items-center px-3 py-1.5 rounded-xl',
                   'text-xs font-medium',

@@ -100,6 +100,17 @@ export interface CachedAlbum {
   cachedAt: number;     // Unix timestamp (ms) - when cached (permanent)
 }
 
+export interface ScrobbledTrack {
+  id?: number;          // Auto-increment
+  trackId: number;      // Track ID
+  artist: string;       // Artist name
+  track: string;        // Track title (cleaned)
+  album?: string;       // Album title
+  timestamp: number;    // Unix timestamp (seconds) - when track started playing
+  scrobbledAt: number;  // Unix timestamp (ms) - when scrobbled
+  // Composite key: trackId + timestamp for uniqueness
+}
+
 // ============================================
 // Database
 // ============================================
@@ -114,6 +125,7 @@ export class CampBandDB extends Dexie {
   trackStats!: Table<TrackStats, number>;
   cachedArtists!: Table<CachedArtist, number>;
   cachedAlbums!: Table<CachedAlbum, number>;
+  scrobbledTracks!: Table<ScrobbledTrack, number>;
 
   constructor() {
     super('CampBandDB');
@@ -185,6 +197,31 @@ export class CampBandDB extends Dexie {
       console.log('[DB] Migrating to v3: Clearing old cache data');
       await tx.table('cachedArtists').clear();
       await tx.table('cachedAlbums').clear();
+    });
+
+    // Version 4: Add scrobbled tracks table for duplicate prevention
+    this.version(4).stores({
+      // Favorites - indexed by id for quick lookup
+      favoriteArtists: 'id, name, addedAt',
+      favoriteAlbums: 'id, title, artist, bandId, addedAt',
+      favoriteTracks: 'id, title, artist, bandId, albumId, addedAt, playCount, lastPlayedAt',
+
+      // Playlists
+      playlists: '++id, name, createdAt, updatedAt',
+      playlistTracks: '++id, playlistId, trackId, position',
+
+      // History - indexed for quick recent lookups
+      history: '++id, type, itemId, playedAt',
+
+      // Track statistics
+      trackStats: 'trackId, playCount, lastPlayedAt',
+
+      // Permanent cache - no expiry, just lastCheckedAt for new release detection
+      cachedArtists: 'id, url, cachedAt, lastCheckedAt',
+      cachedAlbums: 'id, url, cachedAt',
+
+      // Scrobbled tracks - prevent duplicate scrobbles
+      scrobbledTracks: '++id, trackId, timestamp, scrobbledAt',
     });
   }
 }

@@ -1,4 +1,4 @@
-export { db, CampBandDB } from './schema';
+export { db, CampBandDB, type ScrobbledTrack } from './schema';
 export type {
   FavoriteArtist,
   FavoriteAlbum,
@@ -9,4 +9,5 @@ export type {
   TrackStats,
   CachedArtist,
   CachedAlbum,
+  ScrobbledTrack,
 } from './schema';

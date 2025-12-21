@@ -13,12 +13,14 @@ import {
   Database,
   SlidersHorizontal,
   RotateCcw,
+  Music,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/components/layout';
 import { useSettingsStore } from '@/lib/store/settingsStore';
 import { useRouterStore } from '@/lib/store';
 import { DataManagement } from '@/components/settings/DataManagement';
+import { LastFmSettings } from '@/components/settings/LastFmSettings';
 import { EQ_FREQUENCIES, EQ_PRESETS, type EqBand, type EqPresetName } from '@/lib/audio';
 
 export function SettingsPage() {
@@ -40,7 +42,6 @@ export function SettingsPage() {
           icon={<Settings2 size={22} />}
           title="Behavior"
           description="Confirmations and prompts"
-          defaultOpen={true}
         >
           <div className="space-y-2">
             <BehaviorSettings />
@@ -58,6 +59,15 @@ export function SettingsPage() {
             <PlaybackSettings />
             <EqualizerSettings />
           </div>
+        </SettingsSection>
+
+        {/* Last.fm Section */}
+        <SettingsSection
+          icon={<Music size={22} />}
+          title="Last.fm"
+          description="Scrobble tracks to Last.fm"
+        >
+          <LastFmSettings />
         </SettingsSection>
 
         {/* Data Section */}

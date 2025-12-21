@@ -621,7 +621,10 @@ Users can select what to include in the export:
 - **Playlists**: All playlists with track data
 - **Following**: Followed artists
 - **Settings**: Audio and app preferences
+- **Last.fm Login**: Last.fm credentials and scrobbling settings (optional, disabled by default for security)
 - **Include Cover Images**: Optional base64-encoded cover art (makes file larger but allows offline viewing)
+
+**Note**: Last.fm credentials are stored in plaintext in the backup file. Only export this option if you trust the backup file location and understand the security implications.
 
 ### Export Format
 ```typescript
@@ -637,6 +640,7 @@ interface ExportedData {
     audio: AudioSettings;
     app: AppSettings;
   };
+  lastfm?: Record<string, unknown>;  // Last.fm credentials and settings
 }
 ```
 

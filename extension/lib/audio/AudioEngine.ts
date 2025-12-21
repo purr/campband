@@ -15,11 +15,47 @@ import type { AudioCallbacks, AudioSettings, AudioState } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
 // Debug logging for song operations
-const DEBUG_SONGS = false;
+const DEBUG_SONGS = true; // Enable by default for troubleshooting
+const DEBUG_VOLUME = true; // Always log volume changes
+const DEBUG_AUDIO_STATE = true; // Always log audio state changes
 
 function logSong(...args: any[]) {
   if (DEBUG_SONGS) {
     console.log('[AudioEngine]', ...args);
+  }
+}
+
+// Debug logging for errors and stops
+const DEBUG_STOPS = true; // Always log stops/errors
+
+function logStop(reason: string, details?: any) {
+  if (DEBUG_STOPS) {
+    console.warn('[AudioEngine] STOP:', reason, details || '');
+  }
+}
+
+function logError(error: any, context?: string) {
+  if (DEBUG_STOPS) {
+    console.error('[AudioEngine] ERROR:', context || '', error);
+    if (error instanceof Error) {
+      console.error('[AudioEngine] Error stack:', error.stack);
+    }
+  }
+}
+
+function logVolume(action: string, details: any) {
+  if (DEBUG_VOLUME) {
+    // Remove stack traces from normal logs - only log essential info
+    const { stackTrace, ...cleanDetails } = details;
+    console.log(`[AudioEngine] VOLUME ${action}:`, cleanDetails);
+  }
+}
+
+function logAudioState(action: string, details: any) {
+  if (DEBUG_AUDIO_STATE) {
+    // Remove stack traces from normal logs - only log essential info
+    const { stackTrace, ...cleanDetails } = details;
+    console.log(`[AudioEngine] AUDIO STATE ${action}:`, cleanDetails);
   }
 }
 
@@ -40,7 +76,11 @@ class AudioEngine {
   private callbacks: AudioCallbacks = {};
   private settings: AudioSettings = { ...DEFAULT_SETTINGS };
   private eqSettings: EqSettings = { ...DEFAULT_EQ_SETTINGS };
-  private volume = 1;
+
+  // Volume getter - always gets from store (persisted source of truth)
+  private volumeGetter: (() => number) | null = null;
+  private volume = 1; // Cache, but always sync with getter when available
+
   private abortController: AbortController | null = null;
 
   // Crossfade state
@@ -68,24 +108,47 @@ class AudioEngine {
   }
 
   private init(): void {
+    console.log('[AudioEngine] 🎵 INITIALIZING');
+
     // Initialize primary element
     const primary = this.primaryElement.init();
 
     // Initialize crossfade element
     this.crossfadeElement.init();
 
+    // CRITICAL: Sync volume from centralized source on init
+    // This ensures volume is correct even on first load
+    this.syncVolumeFromGetter();
+
     // Set up event forwarding from primary element
     this.primaryElement.setCallbacks({
-      onPlay: () => this.callbacks.onPlay?.(),
+      onPlay: () => {
+        logSong('EVENT: PLAY');
+        this.callbacks.onPlay?.();
+      },
       onPause: () => {
         if (!this.isCrossfading) {
+          logStop('PAUSE', {
+            reason: 'User paused or playback paused',
+            currentTime: this.primaryElement.getCurrentTime(),
+            duration: this.primaryElement.getDuration()
+          });
           this.callbacks.onPause?.();
+        } else {
+          logSong('PAUSE IGNORED - crossfading');
         }
       },
       onEnded: () => {
         if (!this.isCrossfading) {
+          logStop('TRACK ENDED', {
+            reason: 'Track reached end',
+            duration: this.primaryElement.getDuration(),
+            currentSrc: this.primaryElement.getCurrentSrc()?.substring(0, 50)
+          });
           this.crossfadeTriggered = false;
           this.callbacks.onEnded?.();
+        } else {
+          logSong('ENDED IGNORED - crossfading');
         }
       },
       onTimeUpdate: (time, duration) => {
@@ -93,7 +156,16 @@ class AudioEngine {
         this.checkCrossfadeTrigger();
       },
       onDurationChange: (duration) => this.callbacks.onDurationChange?.(duration),
-      onError: (error) => this.callbacks.onError?.(error),
+      onError: (error) => {
+        logError(error, 'AUDIO ELEMENT ERROR');
+        logStop('ERROR', {
+          reason: error,
+          currentTime: this.primaryElement.getCurrentTime(),
+          duration: this.primaryElement.getDuration(),
+          currentSrc: this.primaryElement.getCurrentSrc()?.substring(0, 50)
+        });
+        this.callbacks.onError?.(error);
+      },
       onLoadStart: () => this.callbacks.onLoadStart?.(),
       onCanPlay: () => this.callbacks.onCanPlay?.(),
     });
@@ -122,17 +194,45 @@ class AudioEngine {
 
   /**
    * Ensure audio is connected to processing graph
+   * CRITICAL: Always gets volume from centralized source (store)
+   * CRITICAL: Only connects ONCE to prevent doubled audio
+   * CRITICAL: Uses unified sync to ensure all settings are correct
    */
   private async ensureGraphConnected(): Promise<void> {
     const audio = this.primaryElement.get();
 
-    if (!this.primaryGraph.isConnected(audio)) {
-      await this.primaryGraph.connect(audio, {
-        volumeNormalization: this.settings.volumeNormalization,
-        eq: this.eqSettings,
-      });
-      this.primaryGraph.setVolume(this.volume);
+    // CRITICAL: Check if already connected - if so, just ensure volume is correct
+    if (this.primaryGraph.isConnected(audio)) {
+      // Already connected - just sync volume and settings
+      const volume = this.getVolumeFromSource();
+      this.applyVolume(volume);
+
+      // Also ensure audio element volume is 1.0
+      if (audio.volume !== 1.0) {
+        console.warn('[AudioEngine] CRITICAL: Audio element volume is', audio.volume, 'when already connected - setting to 1.0');
+        audio.volume = 1.0;
+      }
+      return;
     }
+
+    // CRITICAL: Use unified sync to connect and apply all settings
+    // This ensures volume, EQ, volume normalization, etc. are all correct
+    await this.syncAllAudioSettings({
+      // Volume will be gotten from centralized source (store) via getVolumeFromSource()
+      volumeNormalization: this.settings.volumeNormalization,
+      eqEnabled: this.eqSettings.enabled,
+      eqGains: this.eqSettings.gains,
+      crossfadeEnabled: this.settings.crossfadeEnabled,
+      crossfadeDuration: this.settings.crossfadeDuration,
+      gaplessPlayback: this.settings.gaplessPlayback,
+    });
+
+    logSong('GRAPH CONNECTED via ensureGraphConnected', {
+      volume: this.getVolumeFromSource(),
+      gainNodeVolume: this.primaryGraph.getVolume(),
+      audioElementVolume: audio.volume,
+      note: 'Audio now plays ONLY through Web Audio API graph'
+    });
   }
 
   /**
@@ -164,48 +264,234 @@ class AudioEngine {
   // ============================================
 
   /**
+   * Sync all audio settings
+   * This ensures all audio settings are properly applied
+   */
+  async syncAllAudioSettings(options: {
+    volume?: number;
+    volumeNormalization?: boolean;
+    eqEnabled?: boolean;
+    eqGains?: Record<EqBand, number>;
+    crossfadeEnabled?: boolean;
+    crossfadeDuration?: number;
+    gaplessPlayback?: boolean;
+  }): Promise<void> {
+    const audio = this.primaryElement.get();
+    const crossfadeAudio = this.crossfadeElement.get();
+
+    // Capture state BEFORE sync
+    const stateBefore = {
+      primaryAudioVolume: audio.volume,
+      crossfadeAudioVolume: crossfadeAudio.volume,
+      primaryGainVolume: this.primaryGraph.getVolume(),
+      crossfadeGainVolume: this.crossfadeGraph.getVolume(),
+      cachedVolume: this.volume,
+      primaryConnected: this.primaryGraph.isConnected(audio),
+      crossfadeConnected: this.crossfadeGraph.isConnected(crossfadeAudio),
+      primaryContextState: this.primaryGraph.getContextIfExists()?.state,
+    };
+
+    console.log('[AudioEngine] 🔄 SYNC START:', {
+      volume: options.volume ?? this.getVolumeFromSource(),
+      effectiveVolumeBefore: stateBefore.primaryGainVolume * stateBefore.primaryAudioVolume,
+      isConnected: stateBefore.primaryConnected
+    });
+
+    // Step 1: Update settings if provided
+    if (options.volumeNormalization !== undefined ||
+        options.crossfadeEnabled !== undefined ||
+        options.crossfadeDuration !== undefined ||
+        options.gaplessPlayback !== undefined) {
+      this.updateSettings({
+        volumeNormalization: options.volumeNormalization ?? this.settings.volumeNormalization,
+        crossfadeEnabled: options.crossfadeEnabled ?? this.settings.crossfadeEnabled,
+        crossfadeDuration: options.crossfadeDuration ?? this.settings.crossfadeDuration,
+        gaplessPlayback: options.gaplessPlayback ?? this.settings.gaplessPlayback,
+      });
+    }
+
+    // Step 2: Update EQ settings if provided
+    if (options.eqEnabled !== undefined || options.eqGains !== undefined) {
+      this.updateEqSettings({
+        enabled: options.eqEnabled ?? this.eqSettings.enabled,
+        gains: options.eqGains ?? this.eqSettings.gains,
+      });
+    }
+
+    // Step 3: Get volume from centralized source (store) or provided value
+    const volume = options.volume !== undefined
+      ? options.volume
+      : this.getVolumeFromSource();
+
+    // Step 4: CRITICAL - Ensure audio element volumes are 1.0 BEFORE connecting
+    // This prevents volume multiplication
+    audio.volume = 1.0;
+    crossfadeAudio.volume = 1.0;
+
+    // Step 5: Connect primary audio to graph (if not already connected)
+    const wasConnected = this.primaryGraph.isConnected(audio);
+
+    if (!wasConnected) {
+      console.log('[AudioEngine] SYNC - Connecting primary audio to graph');
+      await this.primaryGraph.connect(audio, {
+        volumeNormalization: this.settings.volumeNormalization,
+        eq: this.eqSettings,
+        initialVolume: volume,
+      });
+
+      // CRITICAL: After connecting, verify audio element volume is 1.0
+      // If MediaElementSourceNode was created, audio should ONLY play through Web Audio API
+      if (audio.volume !== 1.0) {
+        console.error('[AudioEngine] ❌ CRITICAL: Audio element volume is', audio.volume, 'after connect - setting to 1.0');
+        audio.volume = 1.0;
+      }
+
+      // CRITICAL: Verify connection is actually working by checking gain node exists
+      const gainNode = this.primaryGraph.getGainNode();
+      if (!gainNode) {
+        console.error('[AudioEngine] ❌ CRITICAL: No gain node after connect! Volume control will not work!');
+      } else {
+        const isConnected = this.primaryGraph.isConnected(audio);
+        if (!isConnected) {
+          console.error('[AudioEngine] ❌ CRITICAL: Graph reports not connected after connect()! Audio may play directly, bypassing volume control!');
+        } else {
+          console.log('[AudioEngine] ✅ Connection verified - gain node exists and graph reports connected');
+        }
+      }
+    } else {
+      // Only update if settings actually changed
+      // This prevents excessive reconnects
+      const currentOptions = this.primaryGraph.getOptions?.() || {};
+      const normalizationChanged = currentOptions.volumeNormalization !== this.settings.volumeNormalization;
+      const eqChanged = JSON.stringify(currentOptions.eq) !== JSON.stringify(this.eqSettings);
+
+      if (normalizationChanged || eqChanged) {
+        console.log('[AudioEngine] SYNC - Primary audio already connected, updating settings');
+        this.primaryGraph.updateOptions({
+          volumeNormalization: this.settings.volumeNormalization,
+          eq: this.eqSettings,
+        });
+      }
+
+      // CRITICAL: Verify audio element volume is still 1.0
+      if (audio.volume !== 1.0) {
+        console.error('[AudioEngine] ❌ CRITICAL: Audio element volume changed to', audio.volume, '- resetting to 1.0');
+        audio.volume = 1.0;
+      }
+    }
+
+    // Step 6: Connect crossfade audio to graph (if not already connected)
+    if (!this.crossfadeGraph.isConnected(crossfadeAudio)) {
+      logSong('SYNC - Connecting crossfade audio to graph');
+      await this.crossfadeGraph.connect(crossfadeAudio, {
+        volumeNormalization: this.settings.volumeNormalization,
+        eq: this.eqSettings,
+        initialVolume: 0, // Crossfade starts at 0
+      });
+    } else {
+      // Only update if settings actually changed
+      // This prevents excessive reconnects
+      const currentOptions = this.crossfadeGraph.getOptions?.() || {};
+      const normalizationChanged = currentOptions.volumeNormalization !== this.settings.volumeNormalization;
+      const eqChanged = JSON.stringify(currentOptions.eq) !== JSON.stringify(this.eqSettings);
+
+      if (normalizationChanged || eqChanged) {
+        logSong('SYNC - Crossfade audio already connected, updating settings');
+        this.crossfadeGraph.updateOptions({
+          volumeNormalization: this.settings.volumeNormalization,
+          eq: this.eqSettings,
+        });
+      }
+    }
+
+    // Step 7: CRITICAL - Apply volume from centralized source
+    // This ensures gain nodes have correct volume
+    // But don't override if we just did emergency connection (volume already applied)
+    if (volume <= 0) {
+      console.warn('[AudioEngine] ⚠️ Volume from source is', volume, '- this will mute audio!');
+    }
+    this.applyVolume(volume);
+
+    // Step 8: CRITICAL - Double-check audio element volumes are 1.0
+    // This prevents volume multiplication
+    audio.volume = 1.0;
+    crossfadeAudio.volume = 1.0;
+
+    // Capture state AFTER sync
+    const stateAfter = {
+      primaryAudioVolume: audio.volume,
+      crossfadeAudioVolume: crossfadeAudio.volume,
+      primaryGainVolume: this.primaryGraph.getVolume(),
+      crossfadeGainVolume: this.crossfadeGraph.getVolume(),
+      cachedVolume: this.volume,
+      primaryConnected: this.primaryGraph.isConnected(audio),
+      crossfadeConnected: this.crossfadeGraph.isConnected(crossfadeAudio),
+      primaryContextState: this.primaryGraph.getContextIfExists()?.state,
+    };
+
+    // Calculate effective volume (what user actually hears)
+    const effectiveVolume = stateAfter.primaryGainVolume * stateAfter.primaryAudioVolume;
+    const effectiveVolumeBefore = stateBefore.primaryGainVolume * stateBefore.primaryAudioVolume;
+
+    const effectiveVolumeChanged = Math.abs(effectiveVolume - effectiveVolumeBefore) > 0.01;
+
+    if (effectiveVolumeChanged) {
+      console.error('[AudioEngine] ❌ VOLUME CHANGED DURING SYNC!', {
+        before: effectiveVolumeBefore,
+        after: effectiveVolume,
+        difference: effectiveVolume - effectiveVolumeBefore,
+        gainVolume: { before: stateBefore.primaryGainVolume, after: stateAfter.primaryGainVolume },
+        audioVolume: { before: stateBefore.primaryAudioVolume, after: stateAfter.primaryAudioVolume }
+      });
+    } else {
+      console.log('[AudioEngine] ✅ SYNC OK');
+    }
+  }
+
+  /**
    * Set event callbacks
    */
   setCallbacks(callbacks: AudioCallbacks): void {
     this.callbacks = { ...this.callbacks, ...callbacks };
-
-    // Resync with DOM in case of hot reload
-    this.resyncWithDOM(true);
-
-    // Re-apply EQ settings after hot reload (graph might have been reconnected)
-    this.reapplyEqSettings();
   }
 
   /**
-   * Re-apply EQ settings (used after hot reload)
-   */
-  private reapplyEqSettings(): void {
-    // Force update EQ on both graphs
-    this.primaryGraph.updateOptions({ eq: this.eqSettings });
-    this.crossfadeGraph.updateOptions({ eq: this.eqSettings });
-  }
-
-  /**
-   * Force reconnect audio graph (for hot-reload recovery)
+   * Force reconnect audio graph
    * This ensures the EQ and other processing is properly connected
    */
   async forceReconnect(): Promise<void> {
     // Don't interfere with ongoing crossfade
     if (this.isCrossfading) {
-      console.log('[AudioEngine] Skipping force reconnect during crossfade');
+      logSong('Skipping force reconnect during crossfade');
       return;
     }
 
     const audio = this.primaryElement.get();
 
+    // Get volume from centralized source (store)
+    const volume = this.getVolumeFromSource();
+
+    logSong('FORCE RECONNECT START', {
+      volume,
+      volumeNormalization: this.settings.volumeNormalization,
+      eqEnabled: this.eqSettings.enabled
+    });
+
     // Force reconnection by passing current settings
     await this.primaryGraph.connect(audio, {
       volumeNormalization: this.settings.volumeNormalization,
       eq: this.eqSettings,
-      initialVolume: this.volume,  // Preserve current volume
+      initialVolume: volume,  // Use volume from store
     });
 
-    console.log('[AudioEngine] Force reconnected audio graph');
+    // CRITICAL: Apply volume from centralized source after connection
+    this.applyVolume(volume);
+
+    logSong('FORCE RECONNECT COMPLETE', {
+      finalVolume: volume,
+      gainNodeVolume: this.primaryGraph.getVolume(),
+      audioElementVolume: audio.volume
+    });
   }
 
   /**
@@ -307,10 +593,18 @@ class AudioEngine {
       return { success: false, error: 'Invalid source' };
     }
 
-    // Skip if same source
-    if (this.primaryElement.getCurrentSrc() === src) {
-      logSong('LOAD SKIP - same source');
-      return { success: true };
+    // Skip if same source (but only if actually loaded and ready)
+    const currentSrc = this.primaryElement.getCurrentSrc();
+    if (currentSrc === src) {
+      // Check if audio is actually ready to play
+      const audio = this.primaryElement.get();
+      if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        logSong('LOAD SKIP - same source and ready');
+        return { success: true };
+      } else {
+        logSong('LOAD - same source but not ready, reloading');
+        // Fall through to reload
+      }
     }
 
       this.abortController = new AbortController();
@@ -332,8 +626,14 @@ class AudioEngine {
     if (result.success) {
       this.crossfadeTriggered = false;
       logSong('LOAD SUCCESS', { src: src.substring(0, 50) });
+
+      // After loading, ensure graph is connected and all settings are synced
+      await this.ensureGraphConnected();
     } else {
+      // Only log if it's not an abort (aborts are expected)
+      if (result.error !== 'Aborted' && !result.error?.includes('aborted')) {
       logSong('LOAD FAILED', { error: result.error, expired: result.expired });
+      }
     }
 
     return result;
@@ -343,7 +643,23 @@ class AudioEngine {
    * Start playback
    */
   async play(): Promise<void> {
-    logSong('PLAY START');
+    const audio = this.primaryElement.get();
+    const stateBeforePlay = {
+      cachedVolume: this.volume,
+      gainNodeVolume: this.primaryGraph.getVolume(),
+      audioElementVolume: audio.volume,
+      effectiveVolume: this.primaryGraph.getVolume() * audio.volume,
+      isConnected: this.primaryGraph.isConnected(audio),
+      contextState: this.primaryGraph.getContextIfExists()?.state,
+    };
+
+    console.log('[AudioEngine] ▶️ PLAY:', {
+      effectiveVolume: stateBeforePlay.effectiveVolume,
+      gainVolume: stateBeforePlay.gainNodeVolume,
+      audioVolume: stateBeforePlay.audioElementVolume
+    });
+
+    // Ensure graph is connected and all settings are synced
     await this.ensureGraphConnected();
 
     // CRITICAL: Resume AudioContext on first user gesture (play button)
@@ -354,21 +670,70 @@ class AudioEngine {
         await primaryContext.resume();
         logSong('AudioContext resumed on play');
       } catch (error) {
-        // Ignore - will resume on next attempt
+        logError(error, 'Failed to resume AudioContext');
       }
     }
 
-    // Ensure graph volume is applied before play (fix loudness after hot reload)
-    this.primaryGraph.setVolume(this.volume);
-    this.primaryElement.get().volume = this.volume;
-    await this.primaryElement.play();
-    logSong('PLAY SUCCESS');
+    // Get volume from centralized source and apply before play
+    const volume = this.getVolumeFromSource();
+    this.applyVolume(volume);
+
+    // CRITICAL: Double-check audio element volume is 1.0 before playing
+    // This prevents volume multiplication
+    if (audio.volume !== 1.0) {
+      console.warn('[AudioEngine] CRITICAL: Audio element volume is', audio.volume, 'before play - setting to 1.0');
+      audio.volume = 1.0;
+    }
+
+    const stateAfterSync = {
+      cachedVolume: this.volume,
+      gainNodeVolume: this.primaryGraph.getVolume(),
+      audioElementVolume: audio.volume,
+      effectiveVolume: this.primaryGraph.getVolume() * audio.volume,
+      isConnected: this.primaryGraph.isConnected(audio),
+      contextState: this.primaryGraph.getContextIfExists()?.state,
+    };
+
+    try {
+      await this.primaryElement.play();
+
+      const stateAfterPlay = {
+        cachedVolume: this.volume,
+        gainNodeVolume: this.primaryGraph.getVolume(),
+        audioElementVolume: audio.volume,
+        effectiveVolume: this.primaryGraph.getVolume() * audio.volume,
+        isConnected: this.primaryGraph.isConnected(audio),
+        contextState: this.primaryGraph.getContextIfExists()?.state,
+        isActuallyPlaying: !audio.paused,
+      };
+
+      // WARNING if effective volume changed
+      if (Math.abs(stateAfterPlay.effectiveVolume - stateBeforePlay.effectiveVolume) > 0.01) {
+        console.error('[AudioEngine] ❌ VOLUME CHANGED DURING PLAY!', {
+          before: stateBeforePlay.effectiveVolume,
+          after: stateAfterPlay.effectiveVolume,
+          difference: stateAfterPlay.effectiveVolume - stateBeforePlay.effectiveVolume
+        });
+      }
+    } catch (error) {
+      logError(error, 'PLAY FAILED');
+      logStop('PLAY FAILED', {
+        reason: error instanceof Error ? error.message : String(error),
+        volume: this.volume
+      });
+      throw error;
+    }
   }
 
   /**
    * Pause playback
    */
   pause(): void {
+    logSong('PAUSE CALLED', {
+      currentTime: this.primaryElement.getCurrentTime(),
+      duration: this.primaryElement.getDuration(),
+      isPlaying: this.primaryElement.isPlaying()
+    });
     this.primaryElement.pause();
   }
 
@@ -376,6 +741,12 @@ class AudioEngine {
    * Stop and reset
    */
   stop(): void {
+    logStop('STOP CALLED', {
+      reason: 'Explicit stop() call',
+      currentTime: this.primaryElement.getCurrentTime(),
+      duration: this.primaryElement.getDuration(),
+      currentSrc: this.primaryElement.getCurrentSrc()?.substring(0, 50)
+    });
     this.primaryElement.stop();
     this.cancelCrossfade();
   }
@@ -391,7 +762,13 @@ class AudioEngine {
     }
 
     const duration = this.primaryElement.getDuration();
-    const clampedTime = Math.max(0, Math.min(time, duration || 0));
+    // Don't seek if duration is invalid (NaN or 0) - audio isn't ready yet
+    if (!duration || isNaN(duration) || duration <= 0) {
+      logSong('SEEK IGNORED - duration not ready', { time, duration, currentTime: this.primaryElement.getCurrentTime() });
+      return;
+    }
+
+    const clampedTime = Math.max(0, Math.min(time, duration));
 
     logSong('SEEK', { time: clampedTime, duration, currentTime: this.primaryElement.getCurrentTime() });
 
@@ -409,23 +786,163 @@ class AudioEngine {
   }
 
   /**
+   * Set volume getter function (from persisted store)
+   * This is the centralized source of truth for volume
+   */
+  setVolumeGetter(getter: () => number): void {
+    this.volumeGetter = getter;
+    // Immediately sync volume from getter
+    this.syncVolumeFromGetter();
+  }
+
+  /**
+   * Get current volume from centralized source (store)
+   * Falls back to cached volume if getter not set
+   * Normalizes volume to 2 decimal places to avoid floating point precision issues
+   */
+  private getVolumeFromSource(): number {
+    if (this.volumeGetter) {
+      const rawStoreVolume = this.volumeGetter();
+      // Normalize to 2 decimal places to avoid floating point precision issues
+      const storeVolume = Math.round(rawStoreVolume * 100) / 100;
+      const cachedVolume = this.volume;
+      // Update cache with normalized value
+      this.volume = storeVolume;
+
+      if (storeVolume !== cachedVolume) {
+    // Only log if volume changed
+    if (Math.abs(storeVolume - cachedVolume) > 0.001) {
+      logVolume('GET FROM SOURCE', {
+        storeVolume,
+        cachedVolume,
+        changed: true
+      });
+    }
+      }
+
+      return storeVolume;
+    }
+
+    // Don't log this - it's normal if getter not set yet
+
+    return this.volume;
+  }
+
+  /**
+   * Sync volume from getter and apply to all audio elements
+   * This is called whenever audio elements are recreated/reconnected
+   */
+  private syncVolumeFromGetter(): void {
+    const volume = this.getVolumeFromSource();
+    this.applyVolume(volume);
+  }
+
+  /**
+   * Apply volume to all audio elements and graphs
+   * This is the centralized place where volume is actually applied
+   * CRITICAL: HTMLAudioElement volume MUST be 1.0 to prevent multiplication
+   *
+   * Normalizes volume to 2 decimal places to avoid floating point precision issues
+   */
+  private applyVolume(volume: number): void {
+    // Normalize to 2 decimal places to avoid floating point precision issues
+    // This ensures volumes like 0.98 become 0.98, and 0.999999 becomes 1.00
+    const normalizedVolume = Math.round(volume * 100) / 100;
+    const clampedVolume = Math.max(0, Math.min(1, normalizedVolume));
+    const oldVolume = this.volume;
+    this.volume = clampedVolume;
+
+    const primaryAudio = this.primaryElement.get();
+    const crossfadeAudio = this.crossfadeElement.get();
+
+    // Get current state BEFORE applying
+    const primaryGainBefore = this.primaryGraph.getVolume();
+    const primaryAudioVolumeBefore = primaryAudio.volume;
+    const crossfadeGainBefore = this.crossfadeGraph.getVolume();
+    const crossfadeAudioVolumeBefore = crossfadeAudio.volume;
+
+    // Apply to both graphs so crossfade audio is also attenuated
+    this.primaryGraph.setVolume(clampedVolume);
+    this.crossfadeGraph.setVolume(clampedVolume);
+
+    // CRITICAL: HTMLAudioElement volume MUST be 1.0 - gain node controls actual volume
+    // If HTMLAudioElement volume is NOT 1.0, it multiplies with gain node volume = DOUBLED AUDIO
+    if (primaryAudio.volume !== 1.0) {
+      console.warn('[AudioEngine] CRITICAL: Primary audio element volume is', primaryAudio.volume, '- setting to 1.0 to prevent volume multiplication');
+      primaryAudio.volume = 1.0;
+    }
+    if (crossfadeAudio.volume !== 1.0) {
+      console.warn('[AudioEngine] CRITICAL: Crossfade audio element volume is', crossfadeAudio.volume, '- setting to 1.0 to prevent volume multiplication');
+      crossfadeAudio.volume = 1.0;
+    }
+
+    // Get state AFTER applying
+    const primaryGainAfter = this.primaryGraph.getVolume();
+    const primaryAudioVolumeAfter = primaryAudio.volume;
+    const crossfadeGainAfter = this.crossfadeGraph.getVolume();
+    const crossfadeAudioVolumeAfter = crossfadeAudio.volume;
+
+    // Only log if volume changed significantly or audio element volume is wrong
+    const volumeChanged = Math.abs(oldVolume - clampedVolume) > 0.01;
+    const audioVolumeWrong = primaryAudioVolumeBefore !== 1.0 || primaryAudioVolumeAfter !== 1.0;
+
+    if (volumeChanged || audioVolumeWrong) {
+      logVolume('APPLY', {
+        requested: volume,
+        clamped: clampedVolume,
+        oldVolume,
+        primaryGain: { before: primaryGainBefore, after: primaryGainAfter },
+        primaryAudioVolume: { before: primaryAudioVolumeBefore, after: primaryAudioVolumeAfter },
+        effectiveVolume: {
+          before: primaryGainBefore * primaryAudioVolumeBefore,
+          after: primaryGainAfter * primaryAudioVolumeAfter
+        },
+        audioVolumeFixed: audioVolumeWrong
+      });
+    }
+  }
+
+  /**
    * Set volume (0-1)
+   * CRITICAL: HTMLAudioElement volume must be 1.0, gain node controls actual volume
+   * Note: This updates the cache, but the store is the source of truth
    */
   setVolume(volume: number): void {
-    this.volume = Math.max(0, Math.min(1, volume));
-    // Apply to both graphs so crossfade audio is also attenuated
-    this.primaryGraph.setVolume(this.volume);
-    this.crossfadeGraph.setVolume(this.volume);
-    // Keep HTMLAudioElements in sync (fallback/direct path safety)
-    this.primaryElement.get().volume = this.volume;
-    this.crossfadeElement.get().volume = this.volume;
+    const oldVolume = this.volume;
+    // Normalize to 2 decimal places to avoid floating point precision issues
+    const normalizedVolume = Math.round(volume * 100) / 100;
+    const clampedVolume = Math.max(0, Math.min(1, normalizedVolume));
+
+    // Only log if volume changed significantly
+    if (Math.abs(oldVolume - clampedVolume) > 0.01) {
+      logVolume('SET VOLUME', {
+        requested: volume,
+        clamped: clampedVolume,
+        oldVolume
+      });
+    }
+
+    this.volume = clampedVolume;
+    this.applyVolume(clampedVolume);
+
+    const finalGainVolume = this.primaryGraph.getVolume();
+    const finalAudioVolume = this.primaryElement.get().volume;
+    const effectiveVolume = finalGainVolume * finalAudioVolume;
+
+    logSong('SET VOLUME', {
+      volume: clampedVolume,
+      gainNodeVolume: finalGainVolume,
+      audioElementVolume: finalAudioVolume,
+      effectiveVolume,
+      oldVolume
+    });
   }
 
   /**
    * Get current volume
    */
   getVolume(): number {
-    return this.volume;
+    return this.getVolumeFromSource();
   }
 
   /**
@@ -474,13 +991,106 @@ class AudioEngine {
    * Get full state object
    */
   getState(): AudioState {
-    return {
+    const audio = this.primaryElement.get();
+    const gainVolume = this.primaryGraph.getVolume();
+    const audioVolume = audio.volume;
+    const effectiveVolume = gainVolume * audioVolume;
+
+    const state = {
       isPlaying: this.isPlaying(),
       currentTime: this.getCurrentTime(),
       duration: this.getDuration(),
       src: this.getCurrentSrc(),
       volume: this.volume,
       muted: this.isMuted(),
+      // Debug info
+      _debug: {
+        cachedVolume: this.volume,
+        gainNodeVolume: gainVolume,
+        audioElementVolume: audioVolume,
+        effectiveVolume: effectiveVolume,
+        isConnected: this.primaryGraph.isConnected(audio),
+        contextState: this.primaryGraph.getContextIfExists()?.state,
+      }
+    };
+
+    return state;
+  }
+
+  /**
+   * Get detailed debug state (for troubleshooting)
+   */
+  getDebugState(): any {
+    const audio = this.primaryElement.get();
+    const crossfadeAudio = this.crossfadeElement.get();
+
+    return {
+      cachedVolume: this.volume,
+      volumeFromSource: this.getVolumeFromSource(),
+      hasVolumeGetter: !!this.volumeGetter,
+      primary: {
+        audioElementVolume: audio.volume,
+        gainNodeVolume: this.primaryGraph.getVolume(),
+        effectiveVolume: this.primaryGraph.getVolume() * audio.volume,
+        isConnected: this.primaryGraph.isConnected(audio),
+        contextState: this.primaryGraph.getContextIfExists()?.state,
+        isPlaying: !audio.paused,
+        currentTime: audio.currentTime,
+        duration: audio.duration,
+      },
+      crossfade: {
+        audioElementVolume: crossfadeAudio.volume,
+        gainNodeVolume: this.crossfadeGraph.getVolume(),
+        effectiveVolume: this.crossfadeGraph.getVolume() * crossfadeAudio.volume,
+        isConnected: this.crossfadeGraph.isConnected(crossfadeAudio),
+        contextState: this.crossfadeGraph.getContextIfExists()?.state,
+      },
+      settings: {
+        volumeNormalization: this.settings.volumeNormalization,
+        eqEnabled: this.eqSettings.enabled,
+        crossfadeEnabled: this.settings.crossfadeEnabled,
+      },
+      allAudioElements: (() => {
+        const allAudioElements = Array.from(document.querySelectorAll('audio'));
+        return allAudioElements.map((el, idx) => {
+          const hasSourceNode = (window as any).__campband_audio_source_nodes__?.has?.(el) || false;
+          return {
+            index: idx,
+            id: el.id || '(no id)',
+            src: el.src?.substring(0, 80) || el.currentSrc?.substring(0, 80) || '(no src)',
+            paused: el.paused,
+            volume: el.volume,
+            muted: el.muted,
+            currentTime: el.currentTime,
+            duration: el.duration,
+            readyState: el.readyState,
+            hasMediaElementSourceNode: hasSourceNode,
+            isPrimary: el.id === 'campband-audio-primary',
+            isCrossfade: el.id === 'campband-audio-crossfade',
+            warning: !el.paused && el.volume === 1.0 && hasSourceNode
+              ? '⚠️ Playing with volume 1.0 + source node - should be fine if source node disconnected direct output'
+              : !el.paused && el.volume === 1.0 && !hasSourceNode
+              ? '❌ Playing with volume 1.0 but NO source node - might be playing directly!'
+              : '✅ OK'
+          };
+        });
+      })(),
+      doubledAudioCheck: (() => {
+        const allAudioElements = Array.from(document.querySelectorAll('audio'));
+        const playingElements = allAudioElements.filter(el => !el.paused);
+        const playingWithoutSourceNode = playingElements.filter(el =>
+          !(window as any).__campband_audio_source_nodes__?.has?.(el)
+        );
+        return {
+          playingElements: playingElements.length,
+          playingWithoutSourceNode: playingWithoutSourceNode.length,
+          warning: playingElements.length > 1
+            ? '❌ MULTIPLE AUDIO ELEMENTS PLAYING - POSSIBLE DOUBLED AUDIO!'
+            : playingWithoutSourceNode.length > 0
+            ? '❌ AUDIO PLAYING WITHOUT SOURCE NODE - PLAYING DIRECTLY (DOUBLED AUDIO!)'
+            : '✅ OK - Single audio element with source node'
+        };
+      })()
     };
   }
 
@@ -607,8 +1217,9 @@ class AudioEngine {
           const fadeOut = Math.cos(progress * Math.PI / 2);
           const fadeIn = Math.sin(progress * Math.PI / 2);
 
-          this.primaryGraph.setVolume(startVolume * fadeOut);
-          this.crossfadeGraph.setVolume(startVolume * fadeIn);
+          // Suppress logging during crossfade to avoid spam (volume changes rapidly)
+          this.primaryGraph.setVolume(startVolume * fadeOut, true);
+          this.crossfadeGraph.setVolume(startVolume * fadeIn, true);
 
           if (step >= steps) {
             if (this.crossfadeInterval) {
@@ -629,8 +1240,11 @@ class AudioEngine {
 
       logSong('CROSSFADE SUCCESS');
     } catch (error) {
-      logSong('CROSSFADE FAILED', error);
-      console.error('[AudioEngine] Crossfade failed:', error);
+      logError(error, 'CROSSFADE FAILED');
+      logStop('CROSSFADE FAILED', {
+        reason: error instanceof Error ? error.message : String(error),
+        nextSrc: nextSrc.substring(0, 50)
+      });
       this.isCrossfading = false;
       this.crossfadeTriggered = false;
       throw error;
@@ -720,16 +1334,33 @@ class AudioEngine {
 
     // Update callbacks on new primary (this doesn't affect playback)
     this.primaryElement.setCallbacks({
-      onPlay: () => this.callbacks.onPlay?.(),
+      onPlay: () => {
+        logSong('EVENT: PLAY (after swap)');
+        this.callbacks.onPlay?.();
+      },
       onPause: () => {
         if (!this.isCrossfading) {
+          logStop('PAUSE (after swap)', {
+            reason: 'User paused or playback paused',
+            currentTime: this.primaryElement.getCurrentTime(),
+            duration: this.primaryElement.getDuration()
+          });
           this.callbacks.onPause?.();
+        } else {
+          logSong('PAUSE IGNORED - crossfading (after swap)');
         }
       },
       onEnded: () => {
         if (!this.isCrossfading) {
+          logStop('TRACK ENDED (after swap)', {
+            reason: 'Track reached end',
+            duration: this.primaryElement.getDuration(),
+            currentSrc: this.primaryElement.getCurrentSrc()?.substring(0, 50)
+          });
           this.crossfadeTriggered = false;
           this.callbacks.onEnded?.();
+        } else {
+          logSong('ENDED IGNORED - crossfading (after swap)');
         }
       },
       onTimeUpdate: (time, duration) => {
@@ -737,7 +1368,16 @@ class AudioEngine {
         this.checkCrossfadeTrigger();
       },
       onDurationChange: (duration) => this.callbacks.onDurationChange?.(duration),
-      onError: (error) => this.callbacks.onError?.(error),
+      onError: (error) => {
+        logError(error, 'AUDIO ELEMENT ERROR (after swap)');
+        logStop('ERROR (after swap)', {
+          reason: error,
+          currentTime: this.primaryElement.getCurrentTime(),
+          duration: this.primaryElement.getDuration(),
+          currentSrc: this.primaryElement.getCurrentSrc()?.substring(0, 50)
+        });
+        this.callbacks.onError?.(error);
+      },
       onLoadStart: () => this.callbacks.onLoadStart?.(),
       onCanPlay: () => this.callbacks.onCanPlay?.(),
     });
@@ -779,69 +1419,6 @@ class AudioEngine {
     this.crossfadeTriggered = false;
   }
 
-  // ============================================
-  // Hot Reload Support
-  // ============================================
-
-  /**
-   * Resync with DOM after hot reload
-   */
-  resyncWithDOM(force = false): void {
-    if (!force && this.primaryElement.isValid() && this.isPlaying()) {
-      return;
-    }
-
-    // Find best audio element in DOM
-    const allAudio = document.querySelectorAll('audio');
-    let bestCandidate: HTMLAudioElement | null = null;
-    let bestScore = -1;
-
-    for (const audio of allAudio) {
-      let score = 0;
-      if (!audio.paused) score += 100;
-      if (audio.currentTime > 0) score += 50;
-      if (audio.id === 'campband-audio-primary') score += 25;
-      if (audio.src?.startsWith('blob:')) score += 10;
-      if (audio.duration > 0 && !isNaN(audio.duration)) score += 5;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestCandidate = audio as HTMLAudioElement;
-      }
-    }
-
-    if (bestCandidate && bestScore > 0) {
-      this.primaryElement.adopt(bestCandidate);
-
-      // Reconnect to graph and reapply volume/mute after hot reload
-      this.primaryGraph.connect(bestCandidate, {
-        volumeNormalization: this.settings.volumeNormalization,
-        eq: this.eqSettings,
-        initialVolume: this.volume,
-      }).then(() => {
-        // Force gain to current volume
-        this.primaryGraph.setVolume(this.volume);
-        // Keep element volume in sync; element is unmuted, gain controls loudness
-        bestCandidate.volume = this.volume;
-        this.primaryElement.setMuted(false);
-      }).catch(console.warn);
-    }
-
-    // Find crossfade element
-    const crossfadeEl = document.getElementById('campband-audio-crossfade') as HTMLAudioElement | null;
-    if (crossfadeEl) {
-      this.crossfadeElement.adopt(crossfadeEl);
-      this.crossfadeGraph.connect(crossfadeEl, {
-        volumeNormalization: this.settings.volumeNormalization,
-        eq: this.eqSettings,
-        initialVolume: 0,
-      }).then(() => {
-        this.crossfadeGraph.setVolume(0);
-        crossfadeEl.volume = this.volume;
-        this.crossfadeElement.setMuted(false);
-      }).catch(console.warn);
-    }
-  }
 
   /**
    * Check if audio chain is connected
@@ -887,6 +1464,22 @@ function getOrCreateAudioEngine(): AudioEngine {
   }
 
   window.__campband_audio_engine__ = new AudioEngine();
+
+  // Expose debug helper to console
+  if (typeof window !== 'undefined') {
+    (window as any).__campband_audio_debug__ = () => {
+      const engine = window.__campband_audio_engine__;
+      if (engine) {
+        const debug = engine.getDebugState();
+        console.log('[AudioEngine] 🔍 DEBUG STATE:', debug);
+        return debug;
+      }
+      console.warn('[AudioEngine] Audio engine not found');
+      return null;
+    };
+    console.log('[AudioEngine] 💡 Debug helper available: window.__campband_audio_debug__()');
+  }
+
   return window.__campband_audio_engine__;
 }
 

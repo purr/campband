@@ -12,8 +12,20 @@
 export const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const;
 
 // Global map to track audio elements that already have MediaElementSourceNode attached
-// This is crucial for hot-reload: MediaElementSourceNode can only be created ONCE per audio element
+// MediaElementSourceNode can only be created ONCE per audio element
 const audioSourceNodes = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+
+// Expose for debugging
+if (typeof window !== 'undefined') {
+  (window as any).__campband_audio_source_nodes__ = {
+    has: (el: HTMLAudioElement) => audioSourceNodes.has(el),
+    get: (el: HTMLAudioElement) => audioSourceNodes.get(el),
+    size: () => {
+      // WeakMap doesn't have size, so we can't count, but we can check if specific element has one
+      return 'WeakMap (no size)';
+    }
+  };
+}
 
 export type EqBand = typeof EQ_FREQUENCIES[number];
 
@@ -67,6 +79,12 @@ export class AudioGraph {
   private audioElement: HTMLAudioElement | null = null;
   private options: AudioGraphOptions = {};
 
+  // Track if we're connected to destination to prevent duplicates
+  private isConnectedToDestination = false;
+
+  // Prevent concurrent reconnects
+  private isReconnecting = false;
+
   /**
    * Get or create the AudioContext
    * If an existing source node is found, reuse its context to avoid mismatches
@@ -87,10 +105,16 @@ export class AudioGraph {
 
     if (!this.context) {
       // Create AudioContext - it will be suspended until user gesture
-      // This is expected browser behavior, not an error
-      this.context = new AudioContext();
+      // The browser warning is expected and harmless - context will work after user gesture
+      // We can't suppress the browser's internal warning, but it's just informational
+      try {
+        this.context = new AudioContext();
+      } catch (error) {
+        // If creation fails, we'll try again later
+        console.warn('[AudioGraph] Failed to create AudioContext:', error);
+        throw error;
+      }
 
-      // Suppress the browser warning by catching it immediately
       // The context will be resumed on first user interaction (play button)
       if (this.context.state === 'suspended') {
         // This is normal - context will resume on user gesture
@@ -98,16 +122,9 @@ export class AudioGraph {
       }
     }
 
-    // Only try to resume if suspended - browsers require user gesture
-    if (this.context.state === 'suspended') {
-      try {
-        await this.context.resume();
-      } catch (error) {
-        // Will resume on next user gesture - this is expected behavior
-        // Don't log - this is normal browser security behavior
-      }
-    }
-
+    // Don't try to resume here - wait for user interaction
+    // The resume will happen in AudioEngine when play() is called
+    // This prevents the browser warning about AudioContext needing user gesture
     return this.context;
   }
 
@@ -130,7 +147,34 @@ export class AudioGraph {
    * Note: MediaElementSourceNode can only be created ONCE per audio element
    */
   async connect(audio: HTMLAudioElement, options: AudioGraphOptions = {}): Promise<void> {
-    // ALWAYS merge options first (fix for hot-reload)
+    // CRITICAL: Check if already connected to this exact audio element
+    // This prevents duplicate connections that cause doubled audio
+    // BUT: If audio is playing and we're not actually connected (isConnected returns false),
+    // we MUST reconnect even if source node exists, because audio is playing directly
+    const isActuallyConnected = this.isConnected(audio);
+    const isAudioPlaying = !audio.paused;
+
+    if (isActuallyConnected) {
+      console.log('[AudioGraph] Already connected to this audio element, skipping reconnect');
+      // Just update options without reconnecting
+      this.options = { ...this.options, ...options };
+      // Update volume if provided
+      if (options.initialVolume !== undefined) {
+        this.setVolume(options.initialVolume);
+      }
+      return;
+    }
+
+    // CRITICAL: If audio is playing but we're not connected, we MUST force reconnect
+    // This can happen when source node exists but isn't connected to our graph
+    if (isAudioPlaying && this.nodes.source?.mediaElement === audio) {
+      console.warn('[AudioGraph] ⚠️ Audio is playing but graph reports not connected! Forcing reconnect...');
+      // Disconnect everything first to ensure clean state
+      this.disconnectNodes();
+      this.isConnectedToDestination = false;
+    }
+
+    // ALWAYS merge options first
     this.options = { ...this.options, ...options };
     // Pass audio element to getContext so it can reuse existing source node's context
     const ctx = await this.getContext(audio);
@@ -175,14 +219,26 @@ export class AudioGraph {
       this.audioElement = audio;
 
       // Check if this audio element already has a MediaElementSourceNode globally
-      // (this happens after hot-reload - the source node persists but our reference was lost)
+      // (the source node may persist but our reference was lost)
       let sourceNode = audioSourceNodes.get(audio);
 
       if (!sourceNode) {
+        // CRITICAL: If audio is playing, pause it FIRST before creating MediaElementSourceNode
+        // This ensures direct output is stopped before we disable it
+        const wasPlaying = !audio.paused;
+        if (wasPlaying) {
+          console.warn('[AudioGraph] ⚠️ Audio is playing - pausing before creating MediaElementSourceNode to ensure clean state');
+          audio.pause();
+        }
+
         // Create new source node and store it globally
+        // MediaElementSourceNode will permanently disable direct audio output
         sourceNode = ctx.createMediaElementSource(audio);
         audioSourceNodes.set(audio, sourceNode);
-        console.log('[AudioGraph] Created new MediaElementSourceNode');
+        console.log('[AudioGraph] Created new MediaElementSourceNode', {
+          wasPlayingBefore: wasPlaying,
+          note: wasPlaying ? 'Audio was paused before creating source node - will resume through graph only' : 'Audio was already paused'
+        });
       } else {
         // Check if existing source node belongs to current context
         const existingContext = (sourceNode as any).context;
@@ -201,11 +257,100 @@ export class AudioGraph {
             throw new Error('Audio element already has a MediaElementSourceNode from a different AudioContext. Element must be recreated.');
           }
         } else {
-          console.log('[AudioGraph] Reusing existing MediaElementSourceNode');
+          // CRITICAL: When reusing existing source node, audio might be playing DIRECTLY
+          // MediaElementSourceNode only disables direct output when FIRST created, not when reused
+          // If audio is playing, we MUST pause it to stop direct playback, then reconnect
+          const wasPlaying = !audio.paused;
+          if (wasPlaying) {
+            console.error('[AudioGraph] ❌ CRITICAL: Reusing MediaElementSourceNode but audio is STILL playing!');
+            console.error('[AudioGraph] MediaElementSourceNode only disables direct output when FIRST created!');
+            console.error('[AudioGraph] Audio is playing DIRECTLY (bypassing graph) = DOUBLED AUDIO!');
+            console.error('[AudioGraph] FIXING: Pausing audio to stop direct playback...');
+            audio.pause();
+            console.log('[AudioGraph] Audio paused - will resume through graph only after reconnection');
+          }
+
+          // CRITICAL: When reusing existing source node, DISCONNECT it completely first
+          // This ensures it's not connected to any old graph that might still be playing
+          // If we don't disconnect, audio might play through the old disconnected graph OR directly
+          console.log('[AudioGraph] Reusing existing MediaElementSourceNode - disconnecting old connections first');
+          try {
+            // Disconnect from ALL destinations to ensure clean slate
+            sourceNode.disconnect();
+            // CRITICAL: Reset connection flag since we just disconnected
+            this.isConnectedToDestination = false;
+            console.log('[AudioGraph] Disconnected existing source node from all destinations');
+          } catch (error) {
+            console.warn('[AudioGraph] Error disconnecting existing source node:', error);
+            // Reset flag anyway to be safe
+            this.isConnectedToDestination = false;
+          }
         }
       }
 
       this.nodes.source = sourceNode;
+
+      // CRITICAL: When MediaElementSourceNode is created, it automatically disconnects
+      // the audio element's direct output. Audio will ONLY play through this graph.
+      // This prevents doubled audio (direct + Web Audio API paths).
+
+      // CRITICAL DEBUG: Verify MediaElementSourceNode actually disconnected direct output
+      // If audio is still playing directly, we have doubled audio!
+      const wasPlayingBefore = !audio.paused;
+      const audioVolumeBefore = audio.volume;
+
+      console.log('[AudioGraph] 🔍 DEBUG: After creating/reusing MediaElementSourceNode:', {
+        audioElementId: audio.id,
+        audioElementSrc: audio.src?.substring(0, 80) || audio.currentSrc?.substring(0, 80) || '(no src)',
+        audioElementVolume: audio.volume,
+        audioElementPaused: audio.paused,
+        wasPlayingBefore: wasPlayingBefore,
+        sourceNodeExists: !!sourceNode,
+        sourceNodeContext: sourceNode ? (sourceNode as any).context?.state : 'none',
+        note: 'MediaElementSourceNode should have disabled direct audio output',
+        warning: wasPlayingBefore && !audio.paused
+          ? '⚠️ Audio was playing before and still playing - MediaElementSourceNode should have stopped direct output'
+          : wasPlayingBefore && audio.paused
+          ? '✅ Audio was playing but now paused - MediaElementSourceNode may have stopped it (check if it resumes)'
+          : '✅ OK'
+      });
+
+      // CRITICAL: If audio was playing before creating MediaElementSourceNode, it should stop playing directly
+      // If it continues playing, MediaElementSourceNode didn't work and we have doubled audio!
+      if (wasPlayingBefore && !audio.paused) {
+        console.error('[AudioGraph] ❌ CRITICAL: Audio was playing before MediaElementSourceNode creation and is STILL playing!');
+        console.error('[AudioGraph] This suggests MediaElementSourceNode did NOT disable direct audio output!');
+        console.error('[AudioGraph] Audio is likely playing BOTH through graph AND directly = DOUBLED AUDIO!');
+      }
+
+      // CRITICAL: Verify the source node is properly set up
+      // If it was reused, make sure it's not already connected to destination
+      if (sourceNode) {
+        try {
+          // Check if source is connected directly to destination (shouldn't happen, but check)
+          const sourceConnections = (sourceNode as any)._connections || [];
+          const hasDirectConnection = sourceConnections.some((conn: any) =>
+            conn && conn.destination === ctx.destination
+          );
+
+          if (hasDirectConnection) {
+            console.error('[AudioGraph] ❌ CRITICAL: Source node has direct connection to destination! Disconnecting...');
+            sourceNode.disconnect(ctx.destination);
+          }
+
+          // DEBUG: Log all connections from source node
+          console.log('[AudioGraph] 🔍 DEBUG: Source node connections:', {
+            connectionCount: sourceConnections.length,
+            connections: sourceConnections.map((conn: any, idx: number) => ({
+              index: idx,
+              destination: conn?.destination === ctx.destination ? 'AudioContext.destination' : 'other',
+              destinationType: conn?.destination?.constructor?.name || 'unknown'
+            }))
+          });
+        } catch {
+          // Connection checking might not be available - that's fine
+        }
+      }
 
       // Always create fresh processing nodes (they don't have the same limitation)
       this.nodes.eqFilters = this.createEqFilters(ctx);
@@ -214,7 +359,18 @@ export class AudioGraph {
 
       // Set initial volume (important for crossfade - start at 0)
       const initialVol = this.options.initialVolume ?? this._pendingVolume;
+      const gainValueBefore = this.nodes.gain.gain.value;
       this.nodes.gain.gain.setValueAtTime(initialVol, ctx.currentTime);
+      this._pendingVolume = initialVol; // Update pending volume
+      const gainValueAfter = this.nodes.gain.gain.value;
+
+      console.log('[AudioGraph] Connected:', {
+        initialVol,
+        audioElementVolume: audio.volume,
+        effectiveVolume: initialVol * audio.volume,
+        volumeNormalization: this.options.volumeNormalization,
+        eqEnabled: this.options.eq?.enabled
+      });
 
       this.reconnect();
     } catch (error) {
@@ -249,9 +405,18 @@ export class AudioGraph {
 
   /**
    * Reconnect the audio graph based on current options
+   * CRITICAL: Prevents concurrent reconnects to avoid doubled audio
    */
   private reconnect(): void {
     if (!this.context || !this.nodes.source || !this.nodes.gain) return;
+
+    // CRITICAL: Prevent concurrent reconnects
+    if (this.isReconnecting) {
+      console.warn('[AudioGraph] ⚠️ Reconnect already in progress, skipping duplicate call');
+      return;
+    }
+
+    this.isReconnecting = true;
 
     // CRITICAL: Check if source node belongs to current context
     // If not, we can't reconnect - source nodes can't be moved between contexts
@@ -317,24 +482,134 @@ export class AudioGraph {
       this.nodes.gain = this.context.createGain();
       this.nodes.gain.gain.setValueAtTime(this._pendingVolume, this.context.currentTime);
     }
+
+    // CRITICAL: Disconnect gain node before reconnecting to prevent duplicate connections
+    try {
+      this.nodes.gain.disconnect();
+    } catch {
+      // Ignore - may not be connected yet
+    }
+
     lastNode.connect(this.nodes.gain);
     lastNode = this.nodes.gain;
 
-    // Connect to destination
+    // CRITICAL: If already connected to destination, disconnect first
+    // This prevents duplicate connections that cause doubled/louder audio
+    if (this.isConnectedToDestination) {
+      console.warn('[AudioGraph] ⚠️ Already connected to destination - disconnecting first to prevent duplicates');
+      try {
+        this.nodes.gain.disconnect(this.context.destination);
+      } catch {
+        // May not be connected - that's fine
+      }
+      this.isConnectedToDestination = false;
+    }
+
+    // CRITICAL: Connect to destination - this is the ONLY path audio should take
+    // MediaElementSourceNode automatically disconnects audio element's direct output
+    // So audio ONLY plays through this graph, never directly
     lastNode.connect(this.context.destination);
+    this.isConnectedToDestination = true;
+
+    // CRITICAL DEBUG: Verify connection and check for doubled audio
+    console.log('[AudioGraph] 🔍 DEBUG: Connected to destination:', {
+      gainNodeValue: this.nodes.gain?.gain.value,
+      audioElementVolume: this.audioElement?.volume,
+      effectiveVolume: (this.nodes.gain?.gain.value || 0) * (this.audioElement?.volume || 1),
+      isConnectedToDestination: this.isConnectedToDestination,
+      audioElementPaused: this.audioElement?.paused,
+      warning: this.audioElement && !this.audioElement.paused && this.audioElement.volume === 1.0
+        ? '⚠️ Audio playing with volume 1.0 - if MediaElementSourceNode worked, this should be fine'
+        : '✅ OK'
+    });
+
+    const finalGainValue = this.nodes.gain.gain.value;
+    const audioElementVolume = this.audioElement?.volume ?? 1.0;
+    const effectiveVolume = finalGainValue * audioElementVolume;
+
+    this.isReconnecting = false;
+
+    console.log('[AudioGraph] Reconnected:', {
+      gainNodeValue: finalGainValue,
+      audioElementVolume,
+      effectiveVolume,
+      isConnectedToDestination: this.isConnectedToDestination,
+      note: this.isConnectedToDestination ? '✅ Connected to destination' : '❌ NOT connected!'
+    });
+
+    if (!this.isConnectedToDestination) {
+      console.error('[AudioGraph] ❌ CRITICAL: Not connected to destination after reconnect!');
+    }
   }
 
   /**
    * Disconnect all nodes (but don't destroy them)
+   * CRITICAL: Must disconnect ALL connections to prevent doubled audio
+   * CRITICAL: Must disconnect from destination specifically to prevent duplicate paths
    */
   private disconnectNodes(): void {
+    // Reset reconnecting flag if we're disconnecting
+    this.isReconnecting = false;
     try {
-      this.nodes.source?.disconnect();
-      this.nodes.eqFilters.forEach(f => f.disconnect());
-      this.nodes.compressor?.disconnect();
-      this.nodes.gain?.disconnect();
-    } catch {
-      // Ignore - nodes may already be disconnected
+      // CRITICAL: Disconnect gain node from destination FIRST
+      // This prevents audio from playing through multiple paths
+      if (this.nodes.gain && this.context && this.isConnectedToDestination) {
+        try {
+          this.nodes.gain.disconnect(this.context.destination);
+          this.isConnectedToDestination = false;
+        } catch {
+          // May not be connected - that's fine
+          this.isConnectedToDestination = false;
+        }
+      }
+
+      // Disconnect source node from ALL destinations
+      if (this.nodes.source) {
+        try {
+          // CRITICAL: Disconnect from destination specifically (shouldn't be connected, but be safe)
+          if (this.context) {
+            try {
+              this.nodes.source.disconnect(this.context.destination);
+            } catch {
+              // May not be connected - that's fine
+            }
+          }
+          // Then disconnect from everything else
+          this.nodes.source.disconnect();
+        } catch {
+          // May already be disconnected
+        }
+      }
+
+      // Disconnect all EQ filters
+      this.nodes.eqFilters.forEach(f => {
+        try {
+          f.disconnect();
+        } catch {
+          // Ignore - may already be disconnected
+        }
+      });
+
+      // Disconnect compressor
+      if (this.nodes.compressor) {
+        try {
+          this.nodes.compressor.disconnect();
+        } catch {
+          // Ignore - may already be disconnected
+        }
+      }
+
+      // Disconnect gain node from everything (already disconnected from destination above)
+      if (this.nodes.gain) {
+        try {
+          this.nodes.gain.disconnect();
+        } catch {
+          // Ignore - may already be disconnected
+        }
+      }
+    } catch (error) {
+      console.warn('[AudioGraph] Error during disconnectNodes:', error);
+      this.isConnectedToDestination = false;
     }
   }
 
@@ -352,12 +627,32 @@ export class AudioGraph {
   }
 
   /**
+   * Get current options (for comparison to prevent unnecessary updates)
+   */
+  getOptions(): AudioGraphOptions {
+    return { ...this.options };
+  }
+
+  /**
    * Update graph options (reconnects if needed)
+   * CRITICAL: Only reconnects when options actually change to prevent excessive reconnects
    */
   updateOptions(options: Partial<AudioGraphOptions>): void {
-    const needsReconnect =
-      options.volumeNormalization !== this.options.volumeNormalization ||
-      options.eq?.enabled !== this.options.eq?.enabled;
+    // Check if options actually changed
+    const volumeNormalizationChanged = options.volumeNormalization !== undefined &&
+                                       options.volumeNormalization !== this.options.volumeNormalization;
+    const eqEnabledChanged = options.eq?.enabled !== undefined &&
+                            options.eq.enabled !== this.options.eq?.enabled;
+    const needsReconnect = volumeNormalizationChanged || eqEnabledChanged;
+
+    // Check if EQ gains changed (no reconnect needed, just update gains)
+    const eqGainsChanged = options.eq?.gains &&
+                          JSON.stringify(options.eq.gains) !== JSON.stringify(this.options.eq?.gains);
+
+    // If nothing changed, skip update
+    if (!needsReconnect && !eqGainsChanged && !options.eq?.gains) {
+      return;
+    }
 
     this.options = {
       ...this.options,
@@ -379,13 +674,18 @@ export class AudioGraph {
       return;
     }
 
-    // Update EQ gains without reconnecting
-    if (options.eq?.gains && this.nodes.eqFilters.length > 0) {
+    // Update EQ gains without reconnecting (if only gains changed)
+    if (eqGainsChanged && this.nodes.eqFilters.length > 0 && !needsReconnect && options.eq) {
       this.applyEqGains(options.eq.gains);
+      return;
     }
 
+    // Only reconnect if structure changed (volumeNormalization or eq enabled)
     if (needsReconnect && this.nodes.source) {
       this.reconnect();
+    } else if (eqGainsChanged && this.nodes.eqFilters.length > 0 && options.eq) {
+      // If structure didn't change but gains did, just update gains
+      this.applyEqGains(options.eq.gains);
     }
   }
 
@@ -465,14 +765,43 @@ export class AudioGraph {
 
   /**
    * Set the output volume (0-1)
+   * Normalizes volume to 2 decimal places to avoid floating point precision issues
    */
-  setVolume(volume: number): void {
-    const clampedVolume = Math.max(0, Math.min(1, volume));
+  setVolume(volume: number, suppressLogging = false): void {
+    // Normalize to 2 decimal places to avoid floating point precision issues
+    const normalizedVolume = Math.round(volume * 100) / 100;
+    const clampedVolume = Math.max(0, Math.min(1, normalizedVolume));
+    const oldPendingVolume = this._pendingVolume;
+    const oldGainValue = this.nodes.gain?.gain.value;
+
     // Store for later if gain node doesn't exist yet
     this._pendingVolume = clampedVolume;
     if (this.nodes.gain && this.context) {
       // Use setValueAtTime for immediate, glitch-free volume changes
       this.nodes.gain.gain.setValueAtTime(clampedVolume, this.context.currentTime);
+      const newGainValue = this.nodes.gain.gain.value;
+
+      // Only log if volume changed significantly and logging is not suppressed
+      // Suppress logging during crossfades (rapid volume changes)
+      if (!suppressLogging && Math.abs((oldGainValue ?? oldPendingVolume) - clampedVolume) > 0.01) {
+        console.log('[AudioGraph] setVolume:', {
+          requested: volume,
+          clamped: clampedVolume,
+          oldGainValue,
+          newGainValue,
+          changed: true
+        });
+      }
+    } else {
+      // Only log if pending volume changed significantly and logging is not suppressed
+      if (!suppressLogging && Math.abs(oldPendingVolume - clampedVolume) > 0.01) {
+        console.log('[AudioGraph] setVolume (no gain node yet):', {
+          requested: volume,
+          clamped: clampedVolume,
+          oldPendingVolume,
+          pendingVolume: this._pendingVolume
+        });
+      }
     }
     // Silently ignore if no gain node - volume will be applied when connected
   }
@@ -490,7 +819,17 @@ export class AudioGraph {
    * Check if audio element is connected
    */
   isConnected(audio: HTMLAudioElement): boolean {
-    return this.nodes.source?.mediaElement === audio;
+    const isSourceConnected = this.nodes.source?.mediaElement === audio;
+    const isDestinationConnected = this.isConnectedToDestination;
+
+    // Both source and destination must be connected for audio to play
+    const fullyConnected = isSourceConnected && isDestinationConnected;
+
+    if (isSourceConnected && !isDestinationConnected) {
+      console.warn('[AudioGraph] ⚠️ Source connected but NOT connected to destination! Audio will not play.');
+    }
+
+    return fullyConnected;
   }
 
   /**
@@ -505,6 +844,7 @@ export class AudioGraph {
    */
   disconnect(): void {
     this.disconnectNodes();
+    this.isConnectedToDestination = false;
     this.nodes = {
       source: null,
       eqFilters: [],

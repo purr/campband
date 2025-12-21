@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AppLayout } from '@/components/layout';
 import { useRouterStore, usePlayerStore } from '@/lib/store';
+import { audioEngine } from '@/lib/audio';
 import { HomePage } from './pages/HomePage';
 import { SearchPage } from './pages/SearchPage';
 import { ArtistPage } from './pages/ArtistPage';
@@ -18,6 +19,7 @@ export function App() {
   const { currentRoute, navigate, isInitialized } = useRouterStore();
   const toggle = usePlayerStore((s) => s.toggle);
   const hasTrack = usePlayerStore((s) => !!s.currentTrack);
+  const { isPlaying } = usePlayerStore();
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -81,7 +83,7 @@ export function App() {
     checkPendingNavigation();
 
     // Also listen for storage changes (if CampBand is already open)
-    const handleStorageChange = (changes: { [key: string]: browser.Storage.StorageChange }) => {
+    const handleStorageChange = (changes: { [key: string]: browser.storage.StorageChange }) => {
       if (changes.pendingNavigation?.newValue) {
         checkPendingNavigation();
       }
@@ -93,6 +95,53 @@ export function App() {
       storageArea.onChanged.removeListener(handleStorageChange);
     };
   }, [navigate, isInitialized]);
+
+  // Handle tab visibility changes - resume AudioContext when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Tab became visible - check if we need to resume AudioContext
+        const shouldBePlaying = isPlaying && hasTrack;
+
+        // If audio should be playing, ensure AudioContext is resumed
+        if (shouldBePlaying) {
+          // Small delay to ensure everything is ready
+          setTimeout(() => {
+            const audioState = audioEngine.getState();
+            const isActuallyPlaying = audioEngine.isPlaying();
+
+            // If store says playing but audio isn't actually playing, try to resume
+            if (!isActuallyPlaying) {
+              // Try to resume AudioContext first
+              const primaryGraph = (audioEngine as any).primaryGraph;
+              const context = primaryGraph?.getContextIfExists?.();
+              if (context && context.state === 'suspended') {
+                context.resume().then(() => {
+                  console.log('[App] AudioContext resumed after tab became visible');
+                  // Try to resume playback
+                  audioEngine.play().catch((err) => {
+                    console.warn('[App] Failed to resume playback after tab became visible:', err);
+                  });
+                }).catch((err) => {
+                  console.warn('[App] Failed to resume AudioContext after tab became visible:', err);
+                });
+              } else {
+                // Context is running but audio isn't playing - try to resume
+                audioEngine.play().catch((err) => {
+                  console.warn('[App] Failed to resume playback after tab became visible:', err);
+                });
+              }
+            }
+          }, 100);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isPlaying, hasTrack]);
 
   const renderPage = () => {
     switch (currentRoute.name) {

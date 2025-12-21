@@ -228,11 +228,11 @@ export function ArtistPage({ artistUrl }: ArtistPageProps) {
         </div>
 
         {isLoading || !currentArtist ? (
-          <ReleaseGridSkeleton count={12} viewMode={artistDiscographyViewMode} />
+          <ReleaseGridSkeleton count={12} viewMode={artistDiscographyViewMode === 'detailed' ? 'list' : artistDiscographyViewMode} />
         ) : (
           <ReleaseGrid
             releases={currentArtist.releases}
-            viewMode={artistDiscographyViewMode}
+            viewMode={artistDiscographyViewMode === 'detailed' ? 'list' : artistDiscographyViewMode}
             bandInfo={{
               id: currentArtist.band.id,
               name: currentArtist.band.name,

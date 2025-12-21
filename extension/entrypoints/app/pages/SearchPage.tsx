@@ -49,9 +49,10 @@ export function SearchPage({ initialQuery }: SearchPageProps) {
   return (
     <div className="min-h-full">
       {/* Header */}
-      <PageHeader>
-          <SearchInput className="flex-1 max-w-2xl" autoFocus />
-      </PageHeader>
+      <PageHeader />
+      <div className="px-6 pt-6">
+        <SearchInput className="flex-1 max-w-2xl" autoFocus />
+      </div>
 
       {/* Results */}
       <div className="px-6 py-6">

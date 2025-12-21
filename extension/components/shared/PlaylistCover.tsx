@@ -33,7 +33,7 @@ export function PlaylistCover({
   const imageSize = size === 'sm'
     ? ImageSizes.THUMB_100
     : size === 'md'
-      ? ImageSizes.THUMB_250
+      ? ImageSizes.THUMB_350
       : ImageSizes.THUMB_350;
 
   const iconSize = size === 'sm' ? 14 : size === 'md' ? 24 : 80;

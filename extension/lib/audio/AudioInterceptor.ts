@@ -29,23 +29,25 @@ const captureCallbacks: AudioCapturedCallback[] = [];
 
 /**
  * Get or create shared AudioContext
+ * Note: Context will be suspended until user gesture - this is expected
  */
 async function getSharedContext(): Promise<AudioContext> {
   if (!sharedContext) {
-    sharedContext = new AudioContext();
-  }
-  if (sharedContext.state === 'suspended') {
     try {
-      await sharedContext.resume();
-    } catch {
-      // Will resume on user gesture
+      sharedContext = new AudioContext();
+    } catch (error) {
+      console.warn('[AudioInterceptor] Failed to create AudioContext:', error);
+      throw error;
     }
   }
+  // Don't try to resume here - wait for user gesture
+  // The browser warning is expected and will stop once user interacts
   return sharedContext;
 }
 
 /**
  * Connect an audio element to our processing graph
+ * AudioContext creation is delayed until element is actually ready to play
  */
 async function captureElement(element: HTMLMediaElement): Promise<AudioGraph | null> {
   // Skip if already captured
@@ -62,9 +64,36 @@ async function captureElement(element: HTMLMediaElement): Promise<AudioGraph | n
   try {
     const graph = new AudioGraph();
 
-    // Need to wait for the element to have a source
+    // Delay AudioContext creation until element is ready or user interacts
+    // This reduces browser warnings by not creating contexts during page scan
     if (element instanceof HTMLAudioElement) {
-      await graph.connect(element, currentOptions);
+      // Only connect immediately if element is ready
+      // Otherwise, delay connection until element loads or user plays
+      const shouldConnectNow = element.readyState >= HTMLMediaElement.HAVE_METADATA ||
+                               element.src ||
+                               element.currentSrc;
+
+      if (shouldConnectNow) {
+        await graph.connect(element, currentOptions);
+      } else {
+        // Defer connection - will happen when element loads or user plays
+        // This prevents creating AudioContext during initial page scan
+        const connectWhenReady = async () => {
+          if (!capturedElements.has(element)) {
+            try {
+              await graph.connect(element, currentOptions);
+            } catch {
+              // Ignore - will retry on play
+            }
+          }
+          element.removeEventListener('loadedmetadata', connectWhenReady);
+          element.removeEventListener('play', connectWhenReady);
+        };
+
+        // Connect when metadata loads OR when user plays
+        element.addEventListener('loadedmetadata', connectWhenReady, { once: true });
+        element.addEventListener('play', connectWhenReady, { once: true });
+      }
     }
 
     capturedElements.add(element);
