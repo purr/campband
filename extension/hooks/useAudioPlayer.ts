@@ -611,6 +611,12 @@ export function useAudioPlayer() {
           audioEngine.crossfadeTo(nextTrack.streamUrl).then(() => {
             // Crossfade complete - now update to new track
             isCrossfading.current = false;
+
+            // CRITICAL: Update lastLoadedTrackId BEFORE advanceToNext to prevent load effect from resetting position
+            // The crossfade already loaded and started the new track, so we don't want to reload/reset it
+            lastLoadedTrackId.current = nextTrack.id;
+            expectedTrackIdForUpdates.current = nextTrack.id;
+
             // After crossfade completes, advance queue state without reloading
             advanceToNext();
           }).catch((err) => {
@@ -665,6 +671,31 @@ export function useAudioPlayer() {
     const isActuallyPlaying = audioEngine.isPlaying();
     const isBlobUrl = currentSrc?.startsWith('blob:');
 
+    // CRITICAL: Check if track is already loaded and playing (e.g., after crossfade)
+    // If crossfade just completed, the track is already loaded and we should NOT reset it
+    const isAlreadyLoadedFromCrossfade = lastLoadedTrackId.current === currentTrack.id &&
+                                         (currentSrc === currentTrack.streamUrl || isBlobUrl) &&
+                                         isActuallyPlaying;
+
+    if (isAlreadyLoadedFromCrossfade) {
+      // Track is already loaded and playing (from crossfade) - just sync time, don't reset
+      logSong('TRACK ALREADY LOADED FROM CROSSFADE - syncing time, skipping reset', {
+        trackId: currentTrack.id,
+        currentTime: audioEngine.getCurrentTime(),
+        duration: audioEngine.getDuration()
+      });
+      const currentAudioTime = audioEngine.getCurrentTime();
+      if (currentAudioTime >= 0) {
+        setCurrentTime(currentAudioTime);
+      }
+      const audioDuration = audioEngine.getDuration();
+      if (audioDuration > 0 && audioDuration !== duration) {
+        setDuration(audioDuration);
+      }
+      // Already marked as loaded, so return early
+      return;
+    }
+
     // If lastLoadedTrackId is null, we MUST load (track was cleared to force reload)
     const needsLoad = lastLoadedTrackId.current === null;
 
@@ -673,7 +704,8 @@ export function useAudioPlayer() {
       (currentSrc === currentTrack.streamUrl || (isBlobUrl && currentSrc)); // Accept blob URLs as valid
 
     // If we need to load (lastLoadedTrackId is null), skip the "already loaded" check
-    if (!needsLoad && isAlreadyThisTrack) {
+    // ALSO: Never skip if it's a new track - we must stop old and load new
+    if (!needsLoad && !isNewTrack && isAlreadyThisTrack) {
       // Check if track is actually loaded and ready
       const audio = audioEngine.getState();
       if (audio.src && audio.duration > 0) {
@@ -796,7 +828,8 @@ export function useAudioPlayer() {
     // CRITICAL: Check if audio is already playing this source (after crossfade)
     // If so, skip load to avoid pausing the audio
     // BUT: Don't skip if we need to force reload (lastLoadedTrackId is null) or if we just stopped (loop all scenario)
-    if (!needsLoad && currentSrc === currentTrack.streamUrl && isActuallyPlaying && !shouldAutoPlay.current) {
+    // AND: Never skip if it's a new track (isNewTrack) - we must load the new track
+    if (!needsLoad && !isNewTrack && currentSrc === currentTrack.streamUrl && isActuallyPlaying && !shouldAutoPlay.current) {
       logSong('SKIP LOAD - already playing this source (crossfade completed)', {
         trackId: currentTrack.id,
         currentSrc: currentSrc?.substring(0, 50),
@@ -841,6 +874,31 @@ export function useAudioPlayer() {
     // Check if this is a NEW track (user changed it) or same track
     const isNewTrack = lastLoadedTrackId.current !== null && lastLoadedTrackId.current !== currentTrack.id;
 
+    // CRITICAL: Check if track is already loaded and playing (e.g., after crossfade)
+    // If so, don't reset - just sync the time and mark as loaded
+    const currentSrc = audioEngine.getCurrentSrc();
+    const isAlreadyLoaded = currentSrc === currentTrack.streamUrl ||
+                             (currentSrc?.startsWith('blob:') && lastLoadedTrackId.current === currentTrack.id);
+    const isActuallyPlaying = audioEngine.isPlaying();
+
+    if (isAlreadyLoaded && isActuallyPlaying && lastLoadedTrackId.current === currentTrack.id) {
+      // Track is already loaded and playing (likely from crossfade) - just sync time
+      logSong('TRACK ALREADY LOADED AND PLAYING - syncing time, skipping reset', {
+        trackId: currentTrack.id,
+        currentTime: audioEngine.getCurrentTime()
+      });
+      const currentAudioTime = audioEngine.getCurrentTime();
+      if (currentAudioTime >= 0) {
+        setCurrentTime(currentAudioTime);
+      }
+      const audioDuration = audioEngine.getDuration();
+      if (audioDuration > 0) {
+        setDuration(audioDuration);
+      }
+      // Already marked as loaded, so return early
+      return;
+    }
+
     logSong('TRACK LOAD DECISION', { isNewTrack, lastLoadedId: lastLoadedTrackId.current, currentId: currentTrack.id, intendedPlay });
 
     // Reset failed attempts when switching to a new track
@@ -848,7 +906,12 @@ export function useAudioPlayer() {
       failedLoadAttempts.current.delete(lastLoadedTrackId.current || 0);
       // Reset seeking state when switching tracks
       isSeeking.current = false;
-      // CRITICAL: Reset time and duration to 0 when track changes
+
+      // SIMPLE FIX: When changing tracks - stop old, reset duration, start new
+      logSong('NEW TRACK - stopping old track and resetting');
+      // Stop the old track immediately
+      audioEngine.stop();
+      // Reset time and duration to 0
       setCurrentTime(0);
       setDuration(0);
       // Also reset in audio engine to ensure it's at 0
@@ -899,10 +962,9 @@ export function useAudioPlayer() {
         if (!shouldAutoPlay.current) {
         setIsPlaying(false); // show as loading, not playing
         }
-        // CRITICAL: Reset time and duration to 0 when starting to load new track
-        setCurrentTime(0);
-        setDuration(0);
-        // Also ensure audio engine is at position 0
+        // Time and duration already reset above when isNewTrack was detected
+        // Double-check audio engine is stopped and reset
+        audioEngine.stop();
         audioEngine.seek(0);
       }
 

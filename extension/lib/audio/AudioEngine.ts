@@ -584,9 +584,14 @@ class AudioEngine {
     // Cancel ongoing crossfade
     this.cancelCrossfade();
 
-    // Stop current playback
-    logSong('LOAD - pausing current playback');
-    this.primaryElement.pause();
+    // SIMPLE FIX: When force loading (track switch), stop completely. Otherwise just pause.
+    if (force) {
+      logSong('LOAD - stopping current playback (force load)');
+      this.primaryElement.stop();
+    } else {
+      logSong('LOAD - pausing current playback');
+      this.primaryElement.pause();
+    }
 
     if (!src || !src.startsWith('http')) {
       logSong('LOAD ERROR - invalid source');
