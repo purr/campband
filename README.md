@@ -22,7 +22,7 @@ CampBand transforms Bandcamp into a sleek, Spotify-like music streaming experien
 
 <div align="center">
 
-<video src="https://raw.githubusercontent.com/purr/campband/main/docs/showcase/showcase.mp4" controls width="800" style="max-width: 100%; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);"></video>
+<video src="https://github.com/user-attachments/assets/ac3e66f8-7ca4-4e35-a3fd-96349a384d58" controls width="800" style="max-width: 100%; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);"></video>
 
 <sub>Watch CampBand in action — smooth browsing, beautiful UI, and seamless playback</sub>
 
