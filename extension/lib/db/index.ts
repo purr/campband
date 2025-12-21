@@ -1,4 +1,4 @@
-export { db, CampBandDB, type ScrobbledTrack } from './schema';
+export { db, CampBandDB } from './schema';
 export type {
   FavoriteArtist,
   FavoriteAlbum,

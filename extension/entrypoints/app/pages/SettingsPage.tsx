@@ -553,7 +553,7 @@ function SettingCard({ children }: { children: React.ReactNode }) {
   return (
     <div className={cn(
       'p-4 rounded-xl',
-      'bg-white/[0.02] hover:bg-white/[0.04]',
+      'bg-white/2 hover:bg-white/4',
       'border border-white/5 hover:border-white/10',
       'transition-all duration-200'
     )}>

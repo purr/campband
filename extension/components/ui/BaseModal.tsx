@@ -108,7 +108,7 @@ export const BaseModal = forwardRef<BaseModalRef, BaseModalProps>(function BaseM
     <div
       ref={backdropRef}
       className={cn(
-        'fixed inset-0 z-[9999] flex items-center justify-center',
+        'fixed inset-0 z-9999 flex items-center justify-center',
         'bg-base/60 backdrop-blur-md',
         'transition-opacity duration-150',
         'outline-none', // Prevent focus ring

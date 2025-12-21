@@ -273,7 +273,7 @@ function VolumeControl({ volume, isMuted, onVolumeChange, onToggleMute }: Volume
               }, 500);
             }}
             className={cn(
-              'fixed z-[9999]',
+              'fixed z-9999',
               'px-3 py-4 rounded-2xl',
               'w-12',
               'liquid-glass-glow',

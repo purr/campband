@@ -6,7 +6,7 @@ export default defineBackground(() => {
 
   // Open the app in a new tab when the extension icon is clicked
   // Use browserAction for MV2 (Firefox)
-  browser.browserAction.onClicked.addListener(async () => {
+  browser.browserAction.onClick.addListener(async () => {
     console.log('[CampBand] Extension icon clicked');
     await openCampBandTab();
   });

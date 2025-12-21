@@ -74,10 +74,9 @@ export function ImageBackdrop({
   return (
     <div
       className={cn(
-        'absolute inset-x-0 top-0 overflow-hidden pointer-events-none',
+        'absolute inset-x-0 top-0 bottom-0 overflow-hidden pointer-events-none',
         className
       )}
-      style={{ height }}
       aria-hidden="true"
     >
       {/* The blurred image */}

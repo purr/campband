@@ -89,6 +89,7 @@ export function DataManagement() {
   const [exportPlaylists, setExportPlaylists] = useState(true);
   const [exportFollowing, setExportFollowing] = useState(true);
   const [exportSettings, setExportSettings] = useState(true);
+  const [exportLastfm, setExportLastfm] = useState(false); // Default to false for security
 
   // Status
   const [isExporting, setIsExporting] = useState(false);
@@ -129,8 +130,8 @@ export function DataManagement() {
 
       const data = await exportData(
         options,
-        exportSettings ? { audio: audio as Record<string, unknown>, app: app as Record<string, unknown> } : undefined,
-        exportLastfm ? (lastfm as Record<string, unknown>) : undefined,
+        exportSettings ? { audio: audio as unknown as Record<string, unknown>, app: app as unknown as Record<string, unknown> } : undefined,
+        exportLastfm ? (lastfm as unknown as Record<string, unknown>) : undefined,
         setProgress
       );
 

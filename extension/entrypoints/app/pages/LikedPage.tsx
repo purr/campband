@@ -91,7 +91,7 @@ export function LikedPage() {
         onPlayAll={handlePlayAll}
         onShuffleAll={handleShuffleAll}
         onAddToQueue={handleAddAllToQueue}
-        accentColor="love"
+          accentColor="rose"
       />
 
       {favoriteTracks.length === 0 ? (

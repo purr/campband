@@ -72,16 +72,16 @@ export function TrackRow({
     switch (showMeta) {
       case 'timestamp':
         return timestamp ? (
-          <span className="text-xs text-muted shrink-0 min-w-[3rem] text-right">{timestamp}</span>
+          <span className="text-xs text-muted shrink-0 min-w-12 text-right">{timestamp}</span>
         ) : null;
       case 'addedAt':
         return addedAt ? (
-          <span className="text-xs text-muted shrink-0 min-w-[4rem] text-right">{formatSmartDate(addedAt)}</span>
+          <span className="text-xs text-muted shrink-0 min-w-16 text-right">{formatSmartDate(addedAt)}</span>
         ) : null;
       case 'playCount':
         return playCount !== undefined ? (
           <span className={cn(
-            'text-xs shrink-0 min-w-[4rem] text-right',
+            'text-xs shrink-0 min-w-16 text-right',
             playCount > 0 ? 'text-foam' : 'text-muted'
           )}>
             {playCount > 0 ? `${playCount}×` : '—'}

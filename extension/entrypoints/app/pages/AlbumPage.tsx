@@ -28,11 +28,11 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
   // Set page title when album loads
   useEffect(() => {
     if (currentAlbum?.title) {
-      const artist = currentAlbum.artist || currentAlbum.bandName || '';
+      const artist = currentAlbum.artist || '';
       setPageTitle(artist ? `${currentAlbum.title} - ${artist}` : currentAlbum.title);
     }
     return () => setPageTitle(null);
-  }, [currentAlbum?.title, currentAlbum?.artist, currentAlbum?.bandName, setPageTitle]);
+  }, [currentAlbum?.title, currentAlbum?.artist, setPageTitle]);
 
   // Check if we have the correct album loaded (not stale data from previous navigation)
   const isReady = !isLoading && currentAlbum && currentAlbum.url === albumUrl;

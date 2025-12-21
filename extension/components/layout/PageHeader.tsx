@@ -120,7 +120,7 @@ export function PageHeader({
     <header
       className={cn(
         // Sticky positioning with high z-index
-        'sticky top-0 z-[100]',
+        'sticky top-0 z-100',
         // Consistent height
         LAYOUT_CLASSES.BAR_HEIGHT,
         // Clean liquid glass - no borders
@@ -191,7 +191,7 @@ export function PageHeader({
             <div
               ref={dropdownRef}
               className={cn(
-                'fixed z-[9999]',
+                'fixed z-9999',
                 'rounded-2xl',
                 'liquid-glass-glow',
                 'overflow-hidden',

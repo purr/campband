@@ -24,9 +24,12 @@ declare namespace browser {
   namespace runtime {
     function getURL(path: string): string;
     function sendMessage(message: any): Promise<any>;
+    interface MessageListener {
+      (message: any, sender: any, sendResponse: (response?: any) => void): void;
+    }
     const onMessage: {
-      addListener(callback: (message: any, sender: any, sendResponse: (response?: any) => void) => void): void;
-      removeListener(callback: (message: any, sender: any, sendResponse: (response?: any) => void): void): void;
+      addListener(callback: MessageListener): void;
+      removeListener(callback: MessageListener): void;
     };
   }
 
@@ -45,5 +48,6 @@ declare namespace browser {
 
   namespace windows {
     function get(windowId: number): Promise<any>;
+    function update(windowId: number, updateProperties: any): Promise<any>;
   }
 }

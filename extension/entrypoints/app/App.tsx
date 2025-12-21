@@ -119,10 +119,10 @@ export function App() {
                 context.resume().then(() => {
                   console.log('[App] AudioContext resumed after tab became visible');
                   // Try to resume playback
-                  audioEngine.play().catch((err) => {
+                  audioEngine.play().catch((err: unknown) => {
                     console.warn('[App] Failed to resume playback after tab became visible:', err);
                   });
-                }).catch((err) => {
+                }).catch((err: unknown) => {
                   console.warn('[App] Failed to resume AudioContext after tab became visible:', err);
                 });
               } else {

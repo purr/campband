@@ -190,7 +190,7 @@ export function LibraryPage() {
               {tab.icon}
               {tab.label}
               <span className={cn(
-                'text-xs px-1.5 py-0.5 rounded-full min-w-[1.75rem] text-center tabular-nums',
+                'text-xs px-1.5 py-0.5 rounded-full min-w-1.75rem text-center tabular-num',
                 activeTab === tab.id ? 'bg-base/20' : 'bg-highlight-med'
               )}>
                 {tab.count}
@@ -474,7 +474,7 @@ function HistorySection({
                   {trackEntriesInPeriod.map((entry) => (
                     <TrackRow
                       key={entry.id}
-                      track={historyEntryToTrack(entry)}
+                      track={{ ...historyEntryToTrack(entry), duration: (historyEntryToTrack(entry).duration ?? 0) }}
                       onPlay={() => {}}
                       onTitleClick={() => entry.albumUrl && onAlbumClick(entry.albumUrl)}
                       onArtistClick={() => entry.bandUrl && onArtistClick(entry.bandUrl)}
@@ -501,7 +501,7 @@ function HistorySection({
           {trackEntries.map((entry) => (
             <TrackRow
               key={entry.id}
-              track={historyEntryToTrack(entry)}
+              track={{ ...historyEntryToTrack(entry), duration: (historyEntryToTrack(entry).duration ?? 0) }}
               onPlay={() => {}}
               onTitleClick={() => entry.albumUrl && onAlbumClick(entry.albumUrl)}
               onArtistClick={() => entry.bandUrl && onArtistClick(entry.bandUrl)}

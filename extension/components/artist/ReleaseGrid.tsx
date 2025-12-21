@@ -166,7 +166,7 @@ function ReleaseCard({ release, onClick, onPlay, onContextMenu }: ReleaseCardPro
       </div>
 
       {/* Text section - fixed height for consistent card sizes */}
-      <div className="min-h-[3rem] text-left">
+      <div className="min-h-12 text-left">
         <p className="font-medium text-text truncate group-hover:text-rose transition-colors leading-tight">
           {release.title}
         </p>

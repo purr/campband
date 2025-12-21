@@ -31,7 +31,7 @@ import { cn, toPlayableTrack, getDisplayTitle, getMenuState, closeContextMenu, s
 import { usePlaylistStore, useQueueStore, useUIStore, useLibraryStore, useSettingsStore, usePlayerStore, useArtistStore, useAlbumStore } from '@/lib/store';
 import { PlaylistCover } from '@/components/shared';
 import { useUnlikeConfirm } from './ConfirmProvider';
-import type { Playlist } from '@/lib/db';
+import type { Playlist, FavoriteTrack } from '@/lib/db';
 import type { Album, Track } from '@/types';
 
 // ============================================
@@ -148,7 +148,7 @@ function ContextMenuContainer({ type, position, data, isVisible }: ContainerProp
     <div
       ref={menuRef}
       className={cn(
-        'fixed z-[9999]',
+        'fixed z-9999',
         'min-w-[200px]',
         'py-2 rounded-2xl',
         'liquid-glass-glow',
@@ -618,6 +618,7 @@ function ArtistMenuContent({ artist }: { artist: ArtistData }) {
         id: artist.id,
         name: artist.name,
         url: artist.url,
+        subdomain: artist.url.split('.')[0] || '',
       });
     }
     closeContextMenu();
@@ -706,7 +707,7 @@ function ArtistMenuContent({ artist }: { artist: ArtistData }) {
 // ============================================
 
 function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
-  const { deletePlaylist, getPlaylistTracks } = usePlaylistStore();
+  const { deletePlaylist } = usePlaylistStore();
   const { setQueue, addMultipleToQueue, insertMultipleNext } = useQueueStore();
   const { play } = usePlayerStore();
   const { openEditPlaylistModal } = useUIStore();
@@ -717,18 +718,32 @@ function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
   const [addedToQueue, setAddedToQueue] = useState(false);
 
   const handlePlay = async () => {
-    const tracks = await getPlaylistTracks(playlist.trackIds);
-    const streamable = tracks.filter(t => t.streamUrl && t.duration);
+    // Get all tracks from playlist trackIds
+    const { db } = await import('@/lib/db');
+    const allTracks = await Promise.all(
+      playlist.trackIds.map(async (trackId) => {
+        return await db.favoriteTracks.get(trackId);
+      })
+    );
+    const tracks = allTracks.filter((t): t is FavoriteTrack => t !== undefined);
+    const streamable = tracks.filter((t: FavoriteTrack) => t.streamUrl && t.duration);
     if (streamable.length > 0) {
-      setQueue(streamable.map(t => toPlayableTrack(t)));
+      setQueue(streamable.map((t: FavoriteTrack) => toPlayableTrack(t)));
       play();
     }
     closeContextMenu();
   };
 
   const handlePlayNext = async () => {
-    const tracks = await getPlaylistTracks(playlist.trackIds);
-    const streamable = tracks.filter(t => t.streamUrl && t.duration);
+    // Get all tracks from playlist trackIds
+    const { db } = await import('@/lib/db');
+    const allTracks = await Promise.all(
+      playlist.trackIds.map(async (trackId) => {
+        return await db.favoriteTracks.get(trackId);
+      })
+    );
+    const tracks = allTracks.filter((t): t is FavoriteTrack => t !== undefined);
+    const streamable = tracks.filter((t: FavoriteTrack) => t.streamUrl && t.duration);
     if (streamable.length > 0) {
       insertMultipleNext(streamable.map(t => toPlayableTrack(t)));
       setPlayingNext(true);
@@ -739,8 +754,15 @@ function PlaylistMenuContent({ playlist }: { playlist: Playlist }) {
   };
 
   const handleAddToQueue = async () => {
-    const tracks = await getPlaylistTracks(playlist.trackIds);
-    const streamable = tracks.filter(t => t.streamUrl && t.duration);
+    // Get all tracks from playlist trackIds
+    const { db } = await import('@/lib/db');
+    const allTracks = await Promise.all(
+      playlist.trackIds.map(async (trackId) => {
+        return await db.favoriteTracks.get(trackId);
+      })
+    );
+    const tracks = allTracks.filter((t): t is FavoriteTrack => t !== undefined);
+    const streamable = tracks.filter((t: FavoriteTrack) => t.streamUrl && t.duration);
     if (streamable.length > 0) {
       addMultipleToQueue(streamable.map(t => toPlayableTrack(t)));
       setAddedToQueue(true);
@@ -1141,7 +1163,7 @@ function PlaylistPicker({ playlists, onSelect, onRemove, track, isVisible, setIs
       ref={pickerRef}
       data-playlist-picker
       className={cn(
-        'fixed z-[9999]',
+        'fixed z-9999',
         'w-[220px] max-h-[300px]',
         'py-2 rounded-2xl',
         'liquid-glass-glow',

@@ -148,7 +148,7 @@ export interface CollectionHeaderProps {
   /** Callback for delete */
   onDelete?: () => void;
   /** Accent color for gradient backdrop */
-  accentColor?: 'rose' | 'love' | 'iris' | 'foam' | 'pine';
+  accentColor?: 'rose' | 'iris' | 'foam' | 'pine' | 'gold' | 'none';
 }
 
 export function CollectionHeader({
@@ -209,7 +209,7 @@ export function CollectionHeader({
           blur="3xl"
           scale={1.4}
           opacity={0.5}
-          accentGlow={accentColor === 'none' ? 'none' : (accentColor || 'rose')}
+          accentGlow={accentColor === 'none' || !accentColor ? 'none' : (accentColor === 'gold' ? 'gold' : accentColor === 'rose' ? 'rose' : accentColor === 'iris' ? 'iris' : accentColor === 'foam' ? 'foam' : accentColor === 'pine' ? 'pine' : 'none')}
         />
       ) : (
         <div className={cn(
@@ -465,7 +465,7 @@ export function TrackList({
   const setSort = onSortChange || setInternalSort;
 
   // Responsive columns
-  const showDuration = width >= BREAKPOINTS.HIDE_DURATION;
+  const showDuration: boolean = width >= BREAKPOINTS.HIDE_DURATION;
   const gridColumns = getGridColumns(false, false, showDuration, false);
 
   // Sort tracks
@@ -549,7 +549,7 @@ export function TrackList({
             track={track}
             index={index}
             isCurrentTrack={currentTrackId === track.id}
-            isPlaying={isPlaying && currentTrackId === track.id}
+            isPlaying={!!(isPlaying && currentTrackId === track.id)}
             isFavorite={isFavoriteTrack(track.id)}
             onPlay={() => onTrackPlay?.(track, index)}
             onFavorite={() => handleToggleFavorite(track)}
@@ -966,7 +966,7 @@ export function PlaylistTrackList({
             track={track}
             index={index}
             isCurrentTrack={currentTrackId === track.id}
-            isPlaying={isPlaying && currentTrackId === track.id}
+            isPlaying={!!(isPlaying && currentTrackId === track.id)}
             isFavorite={isFavoriteTrack(track.id)}
             onPlay={() => onTrackPlay?.(track, index)}
             onFavorite={() => handleToggleFavorite(track)}

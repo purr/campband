@@ -2,7 +2,7 @@
   "name": "campband",
   "description": "Modern Bandcamp client - A sleek alternative frontend for Bandcamp",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "wxt -b firefox",
