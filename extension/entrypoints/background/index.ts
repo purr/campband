@@ -7,12 +7,22 @@ export default defineBackground(() => {
   // Open the app in a new tab when the extension icon is clicked
   // Use browserAction for MV2 (Firefox) - note: it's onClicked (with 'd'), not onClick
   if (browser.browserAction?.onClicked) {
-    browser.browserAction.onClicked.addListener(async () => {
-      console.log('[CampBand] Extension icon clicked');
-      await openCampBandTab();
+    browser.browserAction.onClicked.addListener(async (tab) => {
+      console.log('[CampBand] Extension icon clicked, opening CampBand...');
+      try {
+        await openCampBandTab();
+        console.log('[CampBand] Successfully opened CampBand tab');
+      } catch (error) {
+        console.error('[CampBand] Failed to open CampBand tab:', error);
+      }
     });
+    console.log('[CampBand] Browser action click listener registered');
   } else {
-    console.warn('[CampBand] browserAction.onClicked is not available');
+    console.error('[CampBand] browserAction.onClicked is not available - extension icon click will not work!');
+    console.error('[CampBand] Available browser APIs:', {
+      browserAction: !!browser.browserAction,
+      action: !!(browser as any).action,
+    });
   }
 
   // Handle messages from content scripts or newtab
@@ -52,6 +62,8 @@ async function openCampBandTab(hash?: string): Promise<Browser.tabs.Tab> {
   const hostUrl = CAMPBAND_HOST_URL;
   const extensionUrl = browser.runtime.getURL('/app.html');
 
+  console.log('[CampBand] Opening CampBand tab, hostUrl:', hostUrl, 'extensionUrl:', extensionUrl);
+
   const tabs = await browser.tabs.query({});
 
   // Check for existing CampBand tab (either host or extension page)
@@ -60,6 +72,7 @@ async function openCampBandTab(hash?: string): Promise<Browser.tabs.Tab> {
   const existingTab = existingHostTab || existingExtTab;
 
   if (existingTab && existingTab.id) {
+    console.log('[CampBand] Found existing CampBand tab, focusing it:', existingTab.id);
     // Focus existing tab and optionally update hash
     const baseUrl = existingTab.url?.startsWith(hostUrl) ? hostUrl : extensionUrl;
     if (hash) {
@@ -79,7 +92,10 @@ async function openCampBandTab(hash?: string): Promise<Browser.tabs.Tab> {
   } else {
     // Create new tab - use host URL (content script will inject the app)
     const url = hash ? `${hostUrl}${hash}` : hostUrl;
-    return await browser.tabs.create({ url });
+    console.log('[CampBand] Creating new CampBand tab:', url);
+    const newTab = await browser.tabs.create({ url });
+    console.log('[CampBand] Created new tab:', newTab.id);
+    return newTab;
   }
 }
 

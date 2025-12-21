@@ -75,7 +75,9 @@ export default defineContentScript({
     console.log('[CampBand] Content script loaded on host page:', window.location.href);
 
     // Wait for DOM to be ready
+    console.log('[CampBand] Waiting for #campband-root element...');
     await waitForElement('#campband-root');
+    console.log('[CampBand] Found #campband-root element');
 
     // Mark body so landing page hides
     document.body.classList.add('campband-active');
