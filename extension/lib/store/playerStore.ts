@@ -59,13 +59,20 @@ export const usePlayerStore = create<PlayerState>()(
       repeat: 'off',
 
       // Setters
-      setCurrentTrack: (track, resetTime = true) => set((state) => ({
-        currentTrack: track,
-        // Only reset time if explicitly requested (not when restoring from storage)
-        currentTime: resetTime ? 0 : state.currentTime,
-        // Always reset duration to 0 when switching tracks - it will be set when audio loads
-        duration: resetTime ? 0 : (track?.duration || state.duration || 0),
-      })),
+      setCurrentTrack: (track, resetTime = true) => set((state) => {
+        // Check if it's the same track (page reload scenario)
+        const isSameTrack = state.currentTrack?.id === track?.id;
+
+        return {
+          currentTrack: track,
+          // Only reset time if explicitly requested (not when restoring from storage)
+          currentTime: resetTime ? 0 : state.currentTime,
+          // CRITICAL: Never reset duration on page reload (same track)
+          // Always preserve persisted duration - it will be updated when audio loads
+          // Only reset to 0 if switching to a different track AND resetTime is true
+          duration: (resetTime && !isSameTrack) ? 0 : (state.duration || track?.duration || 0),
+        };
+      }),
       setIsPlaying: (isPlaying) => set({ isPlaying }),
       setIsBuffering: (isBuffering) => set({ isBuffering }),
       setCurrentTime: (currentTime) => set({ currentTime }),

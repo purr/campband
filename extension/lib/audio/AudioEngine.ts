@@ -563,10 +563,27 @@ class AudioEngine {
   async load(src: string, force = false): Promise<{ success: boolean; expired?: boolean; error?: string }> {
     logSong('LOAD START', { src: src.substring(0, 50), force, currentSrc: this.primaryElement.getCurrentSrc()?.substring(0, 50), isPlaying: this.primaryElement.isPlaying() });
 
-    // Don't interrupt playing audio unless forced
-    if (!force && this.primaryElement.isPlaying()) {
-      logSong('LOAD SKIP - already playing');
-      return { success: true }; // Already playing, consider it success
+    // CRITICAL: If loading a different source, ALWAYS stop and clear the old track completely
+    // This prevents the old track from playing briefly before the new one loads
+    let currentSrc = this.primaryElement.getCurrentSrc();
+    const isDifferentSource = currentSrc && currentSrc !== src;
+
+    if (force || isDifferentSource) {
+      // CRITICAL: Stop and clear old track completely before loading new one
+      logSong('LOAD - stopping and clearing old track before loading new one', {
+        currentSrc: currentSrc?.substring(0, 50),
+        newSrc: src.substring(0, 50),
+        force
+      });
+      this.primaryElement.stop();
+      // Small delay to ensure stop completes and audio element is cleared
+      await new Promise(resolve => setTimeout(resolve, 10));
+      // Get fresh currentSrc after stop (should be null/empty now)
+      currentSrc = this.primaryElement.getCurrentSrc();
+    } else if (!force && this.primaryElement.isPlaying()) {
+      // Same source and playing - skip load
+      logSong('LOAD SKIP - already playing same source');
+      return { success: true };
     }
 
     // Handle loading during crossfade
@@ -584,22 +601,14 @@ class AudioEngine {
     // Cancel ongoing crossfade
     this.cancelCrossfade();
 
-    // SIMPLE FIX: When force loading (track switch), stop completely. Otherwise just pause.
-    if (force) {
-      logSong('LOAD - stopping current playback (force load)');
-      this.primaryElement.stop();
-    } else {
-      logSong('LOAD - pausing current playback');
-      this.primaryElement.pause();
-    }
-
     if (!src || !src.startsWith('http')) {
       logSong('LOAD ERROR - invalid source');
       return { success: false, error: 'Invalid source' };
     }
 
     // Skip if same source (but only if actually loaded and ready)
-    const currentSrc = this.primaryElement.getCurrentSrc();
+    // Note: currentSrc is already set above, but refresh it in case it changed
+    currentSrc = this.primaryElement.getCurrentSrc();
     if (currentSrc === src) {
       // Check if audio is actually ready to play
       const audio = this.primaryElement.get();

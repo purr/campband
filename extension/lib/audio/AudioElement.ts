@@ -309,6 +309,9 @@ export class AudioElement {
     if (!this.audio) return;
     this.audio.pause();
     this.audio.currentTime = 0;
+    // CRITICAL: Clear the src to prevent old track from playing
+    this.audio.src = '';
+    this.audio.removeAttribute('src');
     this.currentSrc = null;
     this.revokeBlobUrl();
   }

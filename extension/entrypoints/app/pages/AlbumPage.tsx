@@ -5,6 +5,7 @@ import { CollectionHeader, TrackList } from '@/components/shared';
 import { AlbumAbout } from '@/components/album';
 import { useUnlikeConfirm } from '@/components/ui';
 import { useAlbumStore, useLibraryStore, useQueueStore, usePlayerStore, useRouterStore, useSettingsStore } from '@/lib/store';
+import { shuffleTracks } from '@/lib/utils';
 import { buildArtUrl, ImageSizes } from '@/types';
 import type { Track } from '@/types';
 
@@ -50,8 +51,13 @@ export function AlbumPage({ albumUrl }: AlbumPageProps) {
     if (!currentAlbum) return;
     const streamableTracks = currentAlbum.tracks.filter(t => t.streamUrl);
     if (streamableTracks.length > 0) {
+      // Shuffle the tracks
+      const shuffledTracks = shuffleTracks(streamableTracks);
+      // Pick a random starting track
+      const randomStartIndex = Math.floor(Math.random() * shuffledTracks.length);
+      // Set queue with shuffled tracks starting at random position
+      setQueue(shuffledTracks, randomStartIndex, undefined, true);
       setShuffle(true);
-      setQueue(streamableTracks);
       play();
     }
   };

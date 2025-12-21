@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { PageHeader } from '@/components/layout';
-import { SearchInput, SearchResults } from '@/components/search';
+import { SearchResults } from '@/components/search';
 import { useRouterStore, useSearchStore } from '@/lib/store';
 import type { SearchResult } from '@/types';
 
@@ -50,9 +50,6 @@ export function SearchPage({ initialQuery }: SearchPageProps) {
     <div className="min-h-full">
       {/* Header */}
       <PageHeader />
-      <div className="px-6 pt-6">
-        <SearchInput className="flex-1 max-w-2xl" autoFocus />
-      </div>
 
       {/* Results */}
       <div className="px-6 py-6">

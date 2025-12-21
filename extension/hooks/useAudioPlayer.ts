@@ -257,12 +257,14 @@ export function useAudioPlayer() {
           });
           return;
         }
-        // Validate duration is reasonable (not NaN, not 0 for loaded track, not negative)
-        if (isNaN(dur) || dur < 0 || (dur === 0 && actualCurrentTrack && audioEngine.isPlaying())) {
+        // Validate duration is reasonable (not NaN, not negative)
+        // Allow 0 duration (some tracks might have it)
+        if (isNaN(dur) || dur < 0) {
           logSong('DURATION CHANGE IGNORED - invalid duration', { duration: dur });
           return;
         }
         logSong('DURATION CHANGE', { duration: dur, trackId: actualCurrentTrack?.id });
+        // ALWAYS update duration when valid - don't skip 0
         setDuration(dur);
       },
       onLoadStart: () => {
@@ -346,24 +348,39 @@ export function useAudioPlayer() {
         // This fixes duration issues when clicking to play
         const audioDuration = audioEngine.getDuration();
         if (audioDuration > 0 && !isNaN(audioDuration)) {
-          if (audioDuration !== duration) {
           logSong('SETTING DURATION from canPlay', { duration: audioDuration, oldDuration: duration });
+          // ALWAYS update duration - don't check if different, just set it
           setDuration(audioDuration);
-          }
         }
 
-        // Restore position from persisted state if we have one and audio is ready
+        // CRITICAL: Always restore position from persisted state on page reload
+        // This allows resuming from where user left off
+        // Only restore if it's the same track (check by track ID)
         const storeState = usePlayerStore.getState();
-        if (storeState.currentTime > 0 && audioDuration > 0) {
+        const isSameTrack = storeState.currentTrack?.id === actualCurrentTrack?.id;
+
+        if (isSameTrack && storeState.currentTime > 0 && audioDuration > 0) {
           const currentAudioTime = audioEngine.getCurrentTime();
-          // Only restore if position is significantly different (more than 1 second)
-          if (Math.abs(currentAudioTime - storeState.currentTime) > 1) {
-            logSong('RESTORING POSITION from persisted state', {
-              savedPosition: storeState.currentTime,
+          // Restore if position is different (clamp to valid range: 0 to duration)
+          // Use smaller threshold (0.5s) to always restore on page reload
+          const savedPosition = Math.max(0, Math.min(storeState.currentTime, audioDuration));
+          if (Math.abs(currentAudioTime - savedPosition) > 0.5) {
+            logSong('RESTORING POSITION from persisted state (page reload)', {
+              savedPosition: savedPosition,
+              currentTime: currentAudioTime,
+              duration: audioDuration,
+              trackId: actualCurrentTrack?.id
+            });
+            audioEngine.seek(savedPosition);
+            setCurrentTime(savedPosition);
+          } else if (currentAudioTime < 0.5 && savedPosition > 0.5) {
+            // Even if close, ensure it's set (in case audio element is at 0 but we have saved position)
+            logSong('RESTORING POSITION (audio at start but saved position exists)', {
+              savedPosition: savedPosition,
               currentTime: currentAudioTime
             });
-            audioEngine.seek(storeState.currentTime);
-            setCurrentTime(storeState.currentTime);
+            audioEngine.seek(savedPosition);
+            setCurrentTime(savedPosition);
           }
         }
 
@@ -371,21 +388,45 @@ export function useAudioPlayer() {
         // Check if this is the first load by checking if lastLoadedTrackId was null before
         if (shouldAutoPlay.current && lastLoadedTrackId.current !== null) {
           logSong('AUTO PLAY from canPlay');
+
+          // CRITICAL: Verify track matches before auto-playing
+          const canPlaySrc = audioEngine.getCurrentSrc();
+          const canPlayExpectedSrc = actualCurrentTrack?.streamUrl;
+          const canPlayIsBlobUrl = canPlaySrc?.startsWith('blob:');
+          const canPlayTrackMatches = lastLoadedTrackId.current === actualCurrentTrack?.id;
+          const canPlaySourceMatches = canPlaySrc && (canPlaySrc === canPlayExpectedSrc || canPlayIsBlobUrl);
+
+          if (!canPlayTrackMatches || !canPlaySourceMatches) {
+            logSong('AUTO PLAY BLOCKED - track verification failed', {
+              expectedTrackId: actualCurrentTrack?.id,
+              lastLoadedId: lastLoadedTrackId.current,
+              expectedSrc: canPlayExpectedSrc?.substring(0, 50),
+              audioSrc: canPlaySrc?.substring(0, 50),
+              trackMatches: canPlayTrackMatches,
+              sourceMatches: canPlaySourceMatches
+            });
+            shouldAutoPlay.current = false;
+            setIsPlaying(false);
+            return;
+          }
+
           shouldAutoPlay.current = false;
 
-          // Restore position from persisted state before playing
+          // Restore position from persisted state before playing (only if same track)
           const storeState = usePlayerStore.getState();
-          if (storeState.currentTime > 0 && audioDuration > 0) {
+          const isSameTrack = storeState.currentTrack?.id === actualCurrentTrack?.id;
+          if (isSameTrack && storeState.currentTime > 0 && audioDuration > 0) {
             const currentAudioTime = audioEngine.getCurrentTime();
-            // Only restore if position is significantly different (more than 1 second)
-            if (Math.abs(currentAudioTime - storeState.currentTime) > 1) {
+            // Restore if position is different (clamp to valid range)
+            const savedPosition = Math.max(0, Math.min(storeState.currentTime, audioDuration));
+            if (Math.abs(currentAudioTime - savedPosition) > 0.5) {
               logSong('RESTORING POSITION before auto-play', {
-                savedPosition: storeState.currentTime,
+                savedPosition: savedPosition,
                 currentTime: currentAudioTime,
                 audioDuration
               });
-              audioEngine.seek(storeState.currentTime);
-              setCurrentTime(storeState.currentTime);
+              audioEngine.seek(savedPosition);
+              setCurrentTime(savedPosition);
               // Small delay to ensure seek completes before playing
               setTimeout(() => {
                 setIsPlaying(true);
@@ -434,21 +475,45 @@ export function useAudioPlayer() {
         } else if (shouldAutoPlay.current) {
           // User wants to play - restore position and play even after page reload
           logSong('AUTO PLAY from canPlay (user requested)');
+
+          // CRITICAL: Verify track matches before auto-playing
+          const canPlaySrc = audioEngine.getCurrentSrc();
+          const canPlayExpectedSrc = actualCurrentTrack?.streamUrl;
+          const canPlayIsBlobUrl = canPlaySrc?.startsWith('blob:');
+          const canPlayTrackMatches = lastLoadedTrackId.current === actualCurrentTrack?.id;
+          const canPlaySourceMatches = canPlaySrc && (canPlaySrc === canPlayExpectedSrc || canPlayIsBlobUrl);
+
+          if (!canPlayTrackMatches || !canPlaySourceMatches) {
+            logSong('AUTO PLAY BLOCKED - track verification failed', {
+              expectedTrackId: actualCurrentTrack?.id,
+              lastLoadedId: lastLoadedTrackId.current,
+              expectedSrc: canPlayExpectedSrc?.substring(0, 50),
+              audioSrc: canPlaySrc?.substring(0, 50),
+              trackMatches: canPlayTrackMatches,
+              sourceMatches: canPlaySourceMatches
+            });
+            shouldAutoPlay.current = false;
+            setIsPlaying(false);
+            return;
+          }
+
           shouldAutoPlay.current = false;
 
-          // Restore position from persisted state before playing
+          // Restore position from persisted state before playing (only if same track)
           const storeState = usePlayerStore.getState();
-          if (storeState.currentTime > 0 && audioDuration > 0) {
+          const isSameTrack = storeState.currentTrack?.id === actualCurrentTrack?.id;
+          if (isSameTrack && storeState.currentTime > 0 && audioDuration > 0) {
             const currentAudioTime = audioEngine.getCurrentTime();
-            // Only restore if position is significantly different (more than 1 second)
-            if (Math.abs(currentAudioTime - storeState.currentTime) > 1) {
+            // Restore if position is different (clamp to valid range)
+            const savedPosition = Math.max(0, Math.min(storeState.currentTime, audioDuration));
+            if (Math.abs(currentAudioTime - savedPosition) > 0.5) {
               logSong('RESTORING POSITION before auto-play', {
-                savedPosition: storeState.currentTime,
+                savedPosition: savedPosition,
                 currentTime: currentAudioTime,
                 audioDuration
               });
-              audioEngine.seek(storeState.currentTime);
-              setCurrentTime(storeState.currentTime);
+              audioEngine.seek(savedPosition);
+              setCurrentTime(savedPosition);
               // Small delay to ensure seek completes before playing
               setTimeout(() => {
                 setIsPlaying(true);
@@ -642,6 +707,8 @@ export function useAudioPlayer() {
   const isSeeking = useRef(false);
   // Track the expected track ID for duration/time updates (to prevent stale data)
   const expectedTrackIdForUpdates = useRef<number | null>(null);
+  // Track if we're currently loading a track (to prevent duplicate loads)
+  const isLoadingTrack = useRef<number | null>(null);
   // Force reload counter - incrementing this will trigger the load effect to re-run
   const [forceReloadCounter, setForceReloadCounter] = useState(0);
 
@@ -698,6 +765,13 @@ export function useAudioPlayer() {
 
     // If lastLoadedTrackId is null, we MUST load (track was cleared to force reload)
     const needsLoad = lastLoadedTrackId.current === null;
+
+    // Check if this is a NEW track (user changed it) or same track
+    // CRITICAL: If lastLoadedId is null, check if it's a page reload (same track) or new track
+    // Get store state early to check for page reload
+    const storeState = usePlayerStore.getState();
+    const isPageReload = lastLoadedTrackId.current === null && storeState.currentTrack?.id === currentTrack.id;
+    const isNewTrack = !isPageReload && (lastLoadedTrackId.current === null || lastLoadedTrackId.current !== currentTrack.id);
 
     // Only consider it "already loaded" if lastLoadedTrackId matches AND we don't need to force reload
     const isAlreadyThisTrack = !needsLoad && lastLoadedTrackId.current === currentTrack.id &&
@@ -851,11 +925,12 @@ export function useAudioPlayer() {
     // CRITICAL: Capture user's intent to play BEFORE we change any state
     // This must happen before setIsPlaying(false) is called
     // BUT: On initial load (page reload), always set to false to prevent auto-play
-    // UNLESS: shouldAutoPlay was explicitly set (user wants to play)
+    // UNLESS: shouldAutoPlay was explicitly set (user wants to play) OR isPlaying is true (user clicked play)
     const isInitialMount = lastLoadedTrackId.current === null;
+    // CRITICAL: If isPlaying is true, user wants to play - respect that!
     // If shouldAutoPlay is already true, respect it even on "initial mount" (forced reload)
     // This handles the case where user clicks play but audio isn't ready - we force reload
-    const intendedPlay = isInitialMount && !shouldAutoPlay.current ? false : (isPlaying || shouldAutoPlay.current);
+    const intendedPlay = isInitialMount && !shouldAutoPlay.current && !isPlaying ? false : (isPlaying || shouldAutoPlay.current);
 
     // Prevent infinite loops - max 2 attempts per track (original + 1 refresh)
     const attempts = failedLoadAttempts.current.get(currentTrack.id) || 0;
@@ -871,34 +946,6 @@ export function useAudioPlayer() {
       return;
     }
 
-    // Check if this is a NEW track (user changed it) or same track
-    const isNewTrack = lastLoadedTrackId.current !== null && lastLoadedTrackId.current !== currentTrack.id;
-
-    // CRITICAL: Check if track is already loaded and playing (e.g., after crossfade)
-    // If so, don't reset - just sync the time and mark as loaded
-    const currentSrc = audioEngine.getCurrentSrc();
-    const isAlreadyLoaded = currentSrc === currentTrack.streamUrl ||
-                             (currentSrc?.startsWith('blob:') && lastLoadedTrackId.current === currentTrack.id);
-    const isActuallyPlaying = audioEngine.isPlaying();
-
-    if (isAlreadyLoaded && isActuallyPlaying && lastLoadedTrackId.current === currentTrack.id) {
-      // Track is already loaded and playing (likely from crossfade) - just sync time
-      logSong('TRACK ALREADY LOADED AND PLAYING - syncing time, skipping reset', {
-        trackId: currentTrack.id,
-        currentTime: audioEngine.getCurrentTime()
-      });
-      const currentAudioTime = audioEngine.getCurrentTime();
-      if (currentAudioTime >= 0) {
-        setCurrentTime(currentAudioTime);
-      }
-      const audioDuration = audioEngine.getDuration();
-      if (audioDuration > 0) {
-        setDuration(audioDuration);
-      }
-      // Already marked as loaded, so return early
-      return;
-    }
-
     logSong('TRACK LOAD DECISION', { isNewTrack, lastLoadedId: lastLoadedTrackId.current, currentId: currentTrack.id, intendedPlay });
 
     // Reset failed attempts when switching to a new track
@@ -907,48 +954,92 @@ export function useAudioPlayer() {
       // Reset seeking state when switching tracks
       isSeeking.current = false;
 
-      // SIMPLE FIX: When changing tracks - stop old, reset duration, start new
-      logSong('NEW TRACK - stopping old track and resetting');
-      // Stop the old track immediately
-      audioEngine.stop();
-      // Reset time and duration to 0
-      setCurrentTime(0);
-      setDuration(0);
-      // Also reset in audio engine to ensure it's at 0
-      audioEngine.seek(0);
+      // CRITICAL: When changing tracks - stop old completely, clear state, reset duration
+      // This prevents the old track from playing briefly before the new one loads
+      const isActuallyDifferentTrack = lastLoadedTrackId.current !== null && lastLoadedTrackId.current !== currentTrack.id;
+
+      if (isActuallyDifferentTrack) {
+        logSong('NEW TRACK - stopping old track completely and resetting');
+        // Stop the old track immediately and clear it completely
+        audioEngine.stop();
+        // Clear the loaded track ID immediately to prevent any playback of old track
+        lastLoadedTrackId.current = null;
+        isLoadingTrack.current = null;
+        // Reset time and duration to 0
+        setCurrentTime(0);
+        setDuration(0);
+        // Also reset in audio engine to ensure it's at 0
+        audioEngine.seek(0);
+        // CRITICAL: Don't allow playback until new track is fully loaded and verified
+        shouldAutoPlay.current = false;
+      } else if (isPageReload) {
+        // Page reload with same track - preserve duration from storage
+        logSong('PAGE RELOAD - same track, preserving duration');
+        setCurrentTime(0);
+        // DON'T reset duration - keep the persisted duration from storage
+        // It will be updated when audio loads, but this prevents the flash of 0
+        audioEngine.seek(0);
+      } else {
+        // Same track ID but not page reload (force reload scenario)
+        logSong('SAME TRACK RELOAD - resetting time but keeping duration');
+        setCurrentTime(0);
+        // DON'T reset duration - keep the persisted duration from storage
+        audioEngine.seek(0);
+      }
+
       // CRITICAL: Update previousIsPlaying to current state to prevent false pause detection
       // When switching tracks, any isPlaying changes are NOT user actions
       previousIsPlaying.current = isPlaying;
     }
 
-    // On page reload (initial mount), ALWAYS keep paused - no auto-play
-    // UNLESS: shouldAutoPlay was explicitly set (user wants to play after forcing reload)
-    // Check this BEFORE setting lastLoadedTrackId
+    // On page reload (initial mount), check user intent
+    // CRITICAL: If user clicked play (isPlaying is true), respect that even on initial mount
     if (isInitialMount) {
-      // Only reset shouldAutoPlay if it wasn't explicitly set by user action
-      // If shouldAutoPlay is true, it means user clicked play and we're forcing a reload
-      if (!shouldAutoPlay.current) {
+      // If user wants to play (isPlaying is true), set shouldAutoPlay
+      if (isPlaying) {
+        shouldAutoPlay.current = true;
+        logSong('INITIAL MOUNT - user wants to play, setting shouldAutoPlay');
+      } else {
         shouldAutoPlay.current = false;
         setIsPlaying(false); // Force paused on page reload
-      }
-      // Don't clear error if we're forcing a reload (user wants to play)
-      if (!shouldAutoPlay.current) {
         clearError(); // Clear any errors on page reload
       }
     } else {
       // Set shouldAutoPlay based on intended play state (only for track changes after mount)
+      // CRITICAL: For new tracks, don't set shouldAutoPlay until track is fully loaded and verified
+      // This prevents auto-playing the wrong track
       if (isNewTrack) {
-        shouldAutoPlay.current = intendedPlay;
+        // Don't set shouldAutoPlay yet - wait until track is loaded and verified in onCanPlay
+        // Only set it if we're not switching tracks (intendedPlay will be handled after load)
+        shouldAutoPlay.current = false;
       } else {
         shouldAutoPlay.current = shouldAutoPlay.current || intendedPlay;
       }
     }
 
-    lastLoadedTrackId.current = currentTrack.id;
     // Set expected track ID for duration/time updates
     expectedTrackIdForUpdates.current = currentTrack.id;
 
     logSong('SET shouldAutoPlay', { intendedPlay, wasPlaying: isPlaying, shouldAutoPlay: shouldAutoPlay.current });
+
+    // CRITICAL: Check if we're already loading this track to prevent duplicate loads
+    // Also check if it's already loaded and ready
+    if (isLoadingTrack.current === currentTrack.id) {
+      logSong('SKIP LOAD - already loading this track', { trackId: currentTrack.id });
+      return;
+    }
+
+    // If already loaded and ready, skip load
+    if (lastLoadedTrackId.current === currentTrack.id && audioEngine.getCurrentSrc() === currentTrack.streamUrl) {
+      const audio = audioEngine.getState();
+      if (audio.src && audio.duration > 0) {
+        logSong('SKIP LOAD - track already loaded and ready', { trackId: currentTrack.id });
+        return;
+      }
+    }
+
+    // Mark as loading to prevent duplicate loads
+    isLoadingTrack.current = currentTrack.id;
 
     // Async load with stream URL refresh on 410
     const loadTrack = async () => {
@@ -963,13 +1054,21 @@ export function useAudioPlayer() {
         setIsPlaying(false); // show as loading, not playing
         }
         // Time and duration already reset above when isNewTrack was detected
-        // Double-check audio engine is stopped and reset
-        audioEngine.stop();
+        // Only stop if it's actually a different track (not just reloading same track)
+        const isActuallyDifferentTrack = lastLoadedTrackId.current !== null && lastLoadedTrackId.current !== currentTrack.id;
+        if (isActuallyDifferentTrack) {
+          logSong('NEW TRACK - stopping old track completely');
+          audioEngine.stop();
+        }
         audioEngine.seek(0);
       }
 
-      logSong('LOADING TRACK', { trackId: currentTrack.id, force: isNewTrack });
-      const result = await audioEngine.load(currentTrack.streamUrl!, isNewTrack);
+      // CRITICAL: Always use force=true when switching tracks to ensure old track stops
+      // If it's a new track OR lastLoadedId is null (fresh load), force it
+      const shouldForce = isNewTrack;
+      logSong('LOADING TRACK', { trackId: currentTrack.id, force: shouldForce, isNewTrack, lastLoadedId: lastLoadedTrackId.current });
+
+      const result = await audioEngine.load(currentTrack.streamUrl!, shouldForce);
 
       // Load succeeded - onCanPlay will handle auto-play if shouldAutoPlay is true
 
@@ -1054,8 +1153,20 @@ export function useAudioPlayer() {
           // Abort or "Load failed" error - just clear buffering, don't show error
           setIsBuffering(false);
         }
+
+        // Clear loading flag on error
+        if (isLoadingTrack.current === currentTrack.id) {
+          isLoadingTrack.current = null;
+        }
       } else {
         logSong('LOAD SUCCESS', { trackId: currentTrack.id });
+        // CRITICAL: Only mark as loaded AFTER load succeeds
+        lastLoadedTrackId.current = currentTrack.id;
+
+        // Clear loading flag on success
+        if (isLoadingTrack.current === currentTrack.id) {
+          isLoadingTrack.current = null;
+        }
       }
     };
 
@@ -1262,83 +1373,66 @@ export function useAudioPlayer() {
       return;
     }
 
-    // Normal play/pause handling
+    // SIMPLIFIED: Normal play/pause handling
     if (isPlaying && currentTrack?.streamUrl && currentTrack.streamUrl.startsWith('http')) {
-      // CRITICAL: Verify the track matches what's actually loaded before playing
-      const currentSrc = audioEngine.getCurrentSrc();
-      const expectedSrc = currentTrack.streamUrl;
-      const isBlobUrl = currentSrc?.startsWith('blob:');
-
-      // If audio is loaded but doesn't match current track, we need to reload
-      if (currentSrc && currentSrc !== expectedSrc && !isBlobUrl) {
-        logSong('PLAY BLOCKED - track mismatch, forcing reload', {
-          expectedTrackId: currentTrack.id,
-          expectedSrc: expectedSrc.substring(0, 50),
-          currentSrc: currentSrc.substring(0, 50),
-          lastLoadedId: lastLoadedTrackId.current
-        });
-        // Force reload by clearing lastLoadedTrackId
-        lastLoadedTrackId.current = null;
-        shouldAutoPlay.current = true;
-        // Pause current audio to stop wrong track
-      if (actualIsPlaying) {
-          audioEngine.pause();
-        }
-        // The load effect will detect lastLoadedTrackId is null and load the correct track
-        // Return here - the load effect will handle loading and then onCanPlay will handle play
+      // If already playing the correct track, do nothing
+      if (actualIsPlaying && lastLoadedTrackId.current === currentTrack.id) {
+        logSong('SKIP PLAY - already playing correct track');
         return;
       }
 
-      // If audio is already playing, ensure store is in sync and return
-      if (actualIsPlaying) {
-        // Double-check the track matches
-        if (currentSrc && currentSrc !== expectedSrc && !isBlobUrl) {
-          logSong('PLAY BLOCKED - playing wrong track, stopping', {
-            expectedTrackId: currentTrack.id,
-            expectedSrc: expectedSrc.substring(0, 50),
-            currentSrc: currentSrc.substring(0, 50)
-          });
-          audioEngine.pause();
-          lastLoadedTrackId.current = null;
+      // CRITICAL: Strict verification - only play if track ID, source, and duration all match
+      const audioDuration = audioEngine.getDuration();
+      const audioState = audioEngine.getState();
+      const currentSrc = audioEngine.getCurrentSrc();
+      const expectedSrc = currentTrack.streamUrl;
+      const audioSrc = audioState.src || currentSrc;
+      const isBlobUrl = audioSrc?.startsWith('blob:');
+
+      // Track is ready ONLY if:
+      // 1. Track ID matches (was loaded)
+      // 2. Source matches (either exact match or blob URL)
+      // 3. Has valid duration
+      const trackMatches = lastLoadedTrackId.current === currentTrack.id;
+      const sourceMatches = audioSrc && (audioSrc === expectedSrc || isBlobUrl);
+      const hasValidDuration = audioDuration > 0 && !isNaN(audioDuration);
+
+      // CRITICAL: All three must match - don't trust duration alone
+      const isReady = trackMatches && sourceMatches && hasValidDuration;
+
+      if (!isReady) {
+        // Track not loaded or wrong track - force reload
+        logSong('PLAY BLOCKED - track verification failed, forcing reload', {
+          trackId: currentTrack.id,
+          trackMatches,
+          sourceMatches,
+          hasValidDuration,
+          expectedSrc: expectedSrc.substring(0, 50),
+          audioSrc: audioSrc?.substring(0, 50),
+          duration: audioDuration,
+          lastLoadedId: lastLoadedTrackId.current,
+          isLoading: isLoadingTrack.current === currentTrack.id
+        });
+
+        // If already loading, just wait for it
+        if (isLoadingTrack.current === currentTrack.id) {
+          logSong('PLAY - already loading, waiting for load to complete');
           shouldAutoPlay.current = true;
           return;
         }
-        logSong('SKIP PLAY - already playing');
-        return;
-      }
 
-      // Check if audio is ready - must have valid duration (not NaN, not 0)
-      const hasBlobUrl = audioState.src?.startsWith('blob:');
-      // Audio is ready only if it has a valid duration (not NaN, not 0)
-      // Don't use persisted duration as fallback - wait for actual audio duration
-      const isAudioReady = audioState.src && audioState.duration > 0 && !isNaN(audioState.duration);
-
-      if (!isAudioReady) {
-        // Audio not ready - need to load it first
-        if (currentTrack?.streamUrl && currentTrack.streamUrl.startsWith('http')) {
-          logSong('PLAY REQUESTED - audio not ready, forcing load', {
-            trackId: currentTrack.id,
-            lastLoadedId: lastLoadedTrackId.current,
-            src: audioState.src,
-            duration: audioState.duration,
-            isPlaying
-          });
-          // CRITICAL: Set shouldAutoPlay BEFORE clearing lastLoadedTrackId
-          // This ensures the load effect knows user wants to play
+        // Stop and force reload
+        audioEngine.stop();
+        lastLoadedTrackId.current = null;
+        isLoadingTrack.current = null;
         shouldAutoPlay.current = true;
-          // Force load by clearing lastLoadedTrackId and triggering reload
-          lastLoadedTrackId.current = null;
-          setForceReloadCounter(prev => prev + 1); // Trigger load effect to re-run
-          // The load effect will detect lastLoadedTrackId is null and load the track
-          // It will see shouldAutoPlay.current = true and set intendedPlay correctly
-          // Then onCanPlay will handle play when audio is ready
-          return;
-        } else {
-          logSong('SKIP PLAY - no track to load');
-          setIsPlaying(false); // Don't show as playing if we can't actually play
+        setCurrentTime(0);
+        setDuration(0);
+        // Load effect will handle loading and playing
         return;
       }
-      }
+
+      // Audio is ready - play it
 
       // Audio is ready (has src and duration) - restore position if needed and play
       if (audioState.duration === 0 && duration > 0) {
@@ -1370,18 +1464,21 @@ export function useAudioPlayer() {
         return;
       }
 
-      // Audio has duration - restore position if needed, then play
-      if (storeState.currentTime > 0 && actualAudioDuration > 0) {
+      // Audio has duration - restore position if needed, then play (only if same track)
+      const isSameTrack = storeState.currentTrack?.id === currentTrack?.id;
+      if (isSameTrack && storeState.currentTime > 0 && actualAudioDuration > 0) {
         const currentAudioTime = audioEngine.getCurrentTime();
-        // Only restore if position is significantly different (more than 1 second)
-        if (Math.abs(currentAudioTime - storeState.currentTime) > 1) {
+        // Restore if position is different (clamp to valid range)
+        const savedPosition = Math.max(0, Math.min(storeState.currentTime, actualAudioDuration));
+        if (Math.abs(currentAudioTime - savedPosition) > 0.5) {
           logSong('RESTORING POSITION before play', {
-            savedPosition: storeState.currentTime,
+            savedPosition: savedPosition,
             currentTime: currentAudioTime,
-            audioDuration: actualAudioDuration
+            audioDuration: actualAudioDuration,
+            trackId: currentTrack.id
           });
-          audioEngine.seek(storeState.currentTime);
-          setCurrentTime(storeState.currentTime);
+          audioEngine.seek(savedPosition);
+          setCurrentTime(savedPosition);
           // Small delay to ensure seek completes before playing
           setTimeout(() => {
             logSong('PLAYING after position restore', { trackId: currentTrack.id, duration: actualAudioDuration });
@@ -1399,8 +1496,36 @@ export function useAudioPlayer() {
         }
       }
 
+      // CRITICAL: Final verification before playing - ensure track ID, source, and duration all match
+      const finalSrc = audioEngine.getCurrentSrc();
+      const finalExpectedSrc = currentTrack.streamUrl;
+      const finalAudioState = audioEngine.getState();
+      const finalAudioSrc = finalAudioState.src || finalSrc;
+      const finalIsBlobUrl = finalAudioSrc?.startsWith('blob:');
+      const finalTrackMatches = lastLoadedTrackId.current === currentTrack.id;
+      const finalSourceMatches = finalAudioSrc && (finalAudioSrc === finalExpectedSrc || finalIsBlobUrl);
+
+      if (!finalTrackMatches || !finalSourceMatches) {
+        logSong('PLAY BLOCKED - final verification failed, wrong track', {
+          expectedTrackId: currentTrack.id,
+          lastLoadedId: lastLoadedTrackId.current,
+          expectedSrc: finalExpectedSrc.substring(0, 50),
+          audioSrc: finalAudioSrc?.substring(0, 50),
+          trackMatches: finalTrackMatches,
+          sourceMatches: finalSourceMatches
+        });
+        // Stop wrong track and reload
+        audioEngine.stop();
+        lastLoadedTrackId.current = null;
+        isLoadingTrack.current = null;
+        shouldAutoPlay.current = true;
+        setCurrentTime(0);
+        setDuration(0);
+        return;
+      }
+
       // No position to restore or already at correct position - play immediately
-      logSong('PLAYING', { trackId: currentTrack.id, trackTitle: currentTrack.title, duration: actualAudioDuration });
+      logSong('PLAYING - all verifications passed', { trackId: currentTrack.id, trackTitle: currentTrack.title, duration: actualAudioDuration });
       audioEngine.play().then(() => {
         // Play succeeded - verify it's actually playing
         setTimeout(() => {

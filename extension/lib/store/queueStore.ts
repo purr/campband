@@ -111,8 +111,12 @@ export const useQueueStore = create<QueueState>()(
     });
 
     // Update player's current track
+    // CRITICAL: Don't reset duration on page reload - check if it's the same track
     if (queue[startIndex]) {
-      usePlayerStore.getState().setCurrentTrack(queue[startIndex]);
+      const playerStore = usePlayerStore.getState();
+      const isSameTrack = playerStore.currentTrack?.id === queue[startIndex].id;
+      // Only reset time if it's a different track (preserve on page reload)
+      playerStore.setCurrentTrack(queue[startIndex], !isSameTrack);
     }
   },
 
