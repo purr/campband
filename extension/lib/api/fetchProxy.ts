@@ -44,22 +44,40 @@ export async function proxyFetch(url: string, options?: RequestInit): Promise<Pr
   }
 
   // In content script - proxy through background
-  const response = await browser.runtime.sendMessage({
-    type: 'PROXY_FETCH',
-    url,
-    options: options ? {
-      method: options.method,
-      headers: options.headers,
-      body: options.body,
-    } : undefined,
-  });
+  try {
+    const response = await browser.runtime.sendMessage({
+      type: 'PROXY_FETCH',
+      url,
+      options: options ? {
+        method: options.method,
+        headers: options.headers,
+        body: options.body,
+      } : undefined,
+    });
 
-  if ('error' in response) {
-    throw new Error(response.error);
+    // Check if we got an error response
+    if (!response) {
+      throw new Error('No response from background script. Make sure the extension background script is loaded.');
+    }
+
+    if ('error' in response) {
+      throw new Error(response.error);
+    }
+
+    // Create a Response-like object from the proxied data
+    return new ProxiedResponse(response);
+  } catch (error) {
+    // Handle connection errors (background script not available)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Could not establish connection') ||
+        errorMessage.includes('Receiving end does not exist') ||
+        errorMessage.includes('Extension context invalidated')) {
+      console.error('[CampBand] Background script connection error:', errorMessage);
+      throw new Error('Background script is not available. Please reload the extension.');
+    }
+    // Re-throw other errors
+    throw error;
   }
-
-  // Create a Response-like object from the proxied data
-  return new ProxiedResponse(response);
 }
 
 /**

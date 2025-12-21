@@ -5,11 +5,15 @@ export default defineBackground(() => {
   console.log('[CampBand] Background script loaded');
 
   // Open the app in a new tab when the extension icon is clicked
-  // Use browserAction for MV2 (Firefox)
-  browser.browserAction.onClick.addListener(async () => {
-    console.log('[CampBand] Extension icon clicked');
-    await openCampBandTab();
-  });
+  // Use browserAction for MV2 (Firefox) - note: it's onClicked (with 'd'), not onClick
+  if (browser.browserAction?.onClicked) {
+    browser.browserAction.onClicked.addListener(async () => {
+      console.log('[CampBand] Extension icon clicked');
+      await openCampBandTab();
+    });
+  } else {
+    console.warn('[CampBand] browserAction.onClicked is not available');
+  }
 
   // Handle messages from content scripts or newtab
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {

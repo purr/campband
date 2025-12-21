@@ -34,7 +34,7 @@ declare namespace browser {
   }
 
   const browserAction: {
-    onClick: {
+    onClicked: {
       addListener(callback: (tab: any) => void): void;
     };
   };
