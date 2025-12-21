@@ -1,6 +1,6 @@
 <div align="center">
 
-# <img src="extension/public/icon/icon.svg" alt="CampBand" width="64" height="64" style="vertical-align: middle; margin-right: 12px;" />
+<img src="extension/public/icon/icon.svg" alt="CampBand" width="64" height="64" style="vertical-align: middle; margin-right: 12px;" />
 
 # CampBand
 
