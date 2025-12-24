@@ -662,6 +662,12 @@ class ScrobblingService {
       return;
     }
 
+    // CRITICAL: Check if currentTrack is still valid (might have been cleared)
+    if (!this.currentTrack) {
+      debugLog('Cannot queue scrobble: currentTrack is null');
+      return;
+    }
+
     // Double-check if this exact play session was already scrobbled (race condition protection)
     const wasAlreadyScrobbled = await this.wasTrackScrobbled(this.currentTrack.id, this.trackStartTime);
     if (wasAlreadyScrobbled) {
@@ -677,16 +683,22 @@ class ScrobblingService {
     await this.markTrackAsScrobbled(this.currentTrack, this.trackStartTime);
     debugLog('Track marked as scrobbled in database (queued for later sending)');
 
+    // CRITICAL: Create a copy of track data to avoid reference issues
+    // Store essential track data, not the reference (which might become null)
+    const trackData: Track = {
+      ...this.currentTrack,
+    };
+
     // Add to queue (will be sent when music stops for 30+ seconds)
     this.queuedScrobbles.push({
-      track: this.currentTrack,
+      track: trackData,
       timestamp: this.trackStartTime,
       queuedAt: Date.now(),
     });
 
     debugLog('Scrobble queued (will send when music stops for 30+ seconds)', {
-      trackId: this.currentTrack.id,
-      title: this.currentTrack.title,
+      trackId: trackData.id,
+      title: trackData.title,
       timestamp: this.trackStartTime,
       queueSize: this.queuedScrobbles.length,
     });
@@ -722,6 +734,15 @@ class ScrobblingService {
 
     for (const queued of scrobblesToSend) {
       try {
+        // CRITICAL: Skip if track is null (might have been cleared)
+        if (!queued.track) {
+          console.warn('[ScrobblingService] Skipping queued scrobble - track is null', {
+            timestamp: queued.timestamp,
+            queuedAt: new Date(queued.queuedAt).toISOString(),
+          });
+          continue;
+        }
+
         const artist = queued.track.artist || queued.track.bandName || 'Unknown Artist';
         const trackTitle = getDisplayTitle(queued.track) || queued.track.title || 'Unknown Track';
         const album = queued.track.albumTitle || undefined;
@@ -746,12 +767,14 @@ class ScrobblingService {
         console.error('[ScrobblingService] Failed to send queued scrobble:', error);
         debugLog('Queued scrobble failed, adding to pending retry queue', error);
 
-        // Add to pending scrobbles for retry
-        this.pendingScrobbles.push({
-          track: queued.track,
-          timestamp: queued.timestamp,
-          retryCount: 0,
-        });
+        // Add to pending scrobbles for retry (only if track is valid)
+        if (queued.track) {
+          this.pendingScrobbles.push({
+            track: queued.track,
+            timestamp: queued.timestamp,
+            retryCount: 0,
+          });
+        }
       }
     }
 
